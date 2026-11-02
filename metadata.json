@@ -1,0 +1,6 @@
+{
+  "name": "Social Media & E-Commerce Sentiment Analysis Platform (v2.0)",
+  "description": "Production-ready Social Media (YouTube, Instagram) and E-Commerce (Amazon, Flipkart) comment and review sentiment analysis platform with 2-tier classification, uncapped ingestion, Hinglish & emoji support, domain-adaptive root-cause sub-tagging, and sub-second exports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

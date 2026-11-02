@@ -1,0 +1,33 @@
+=== E-COMMERCE PRODUCT REVIEW SENTIMENT REPORT ===
+Post / ASIN / FSN ID,amz_smartphone_reviews
+Source URL,https://www.amazon.in/dp/B09X6GMNP7
+Platform,AMAZON
+Model Used,vader_hybrid
+Generated At,2026-11-02 10:33:28Z
+Uncapped Pagination Ingestion,100% UNRESTRICTED (Fetched without cap limits)
+Pages Fetched,125
+Total Raw Harvest,1250
+Spam & Duplicates Filtered,49
+Valid Analyzed Items,1201
+High Negative Alert (>70%),NORMAL
+
+=== E-COMMERCE STAR RATING DISTRIBUTION ===
+Star Rating,Review Count
+5 Star,151
+4 Star,50
+3 Star,124
+2 Star,252
+1 Star,624
+
+=== TIER-1 SENTIMENT CATEGORY BREAKDOWN ===
+Category,Count,Percentage (%),Top Recurring Issues / Praise Keywords
+Negative,804,66.9%,Battery drain & heating defect | Delivery delay & damaged packaging | Counterfeit / Nakli fake unit | Overpriced / Refund rejected
+Positive,291,24.2%,Paisa vasool & outstanding value | Superb battery & snappy display | Genuine product & fast shipping
+Neutral,106,8.8%,Hardware spec inquiries | Charger & box accessories | Compatibility queries
+
+=== TIER-2 NEGATIVE ROOT-CAUSE SUB-TAGGING BREAKDOWN ===
+Root Cause Category,Count,Percentage of Negative (%),Sample Comments
+Product Defect / Hardware Quality,371,46.1%,"Battery backup bekar hai, drains from 100% to 20% in just 3 hours! Terrible battery life. /// Overheating issue while charging and playing basic games. Defective hardware unit 😡 /// Phone screen started flickering on day 2 and stopped working completely. Dead display."
+"Delivery, Packaging & Logistics",150,18.7%,"Delivery delayed by 5 days, package was badly damaged with courier seal broken! 😡 /// Damaged box received! Courier person was very rude and outer package was completely crushed. /// Charging adapter missing from the box! Outer seal was tampered upon arrival."
+Counterfeit / Wrong Item Received,180,22.4%,"Bilkul nakli product bheja hai! Fake copy, duplicate serial number not registering on official site 😡 /// Fake product, pure duplicate! Received wrong color and different cheap model inside. /// Dhoka hai yeh! Fake phone sent, duplicate charger and cheap plastic body. Dhoka seller!"
+Value for Money / Pricing & Warranty,103,12.8%,"Paisa barbaad ho gaya! Overpriced for such cheap plastic body and poor performance. /// Waste of money, totally overpriced. Refund denied by customer service after returning item. /// Warranty denied by authorized service center claiming seller is unauthorized! Paisa barbaad."
