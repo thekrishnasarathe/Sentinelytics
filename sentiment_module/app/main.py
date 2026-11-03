@@ -1,7 +1,7 @@
 """
 FastAPI Server & REST API Endpoints:
-Provides asynchronous background processing, cached reports, and sub-second export streaming
-for Social Media (YouTube, Instagram) and E-Commerce (Amazon, Flipkart).
+Provides asynchronous background processing, cached reports, live key-free web scraping,
+and sub-second export streaming for Social Media (YouTube, Instagram) and E-Commerce (Amazon, Flipkart).
 """
 
 import os
@@ -19,9 +19,8 @@ from .extractor import (
     InstagramExtractor,
     AmazonExtractor,
     FlipkartExtractor,
-    generate_realistic_flagged_dataset,
-    generate_realistic_amazon_dataset,
-    generate_realistic_flipkart_dataset,
+    parse_url_and_detect_platform,
+    DEMO_POST_IDS,
 )
 from .preprocessor import CommentPreprocessor
 from .nlp_engine import NLPEngine
@@ -67,49 +66,64 @@ exporter = ExporterEngine(cache_manager=cache_mgr, exports_dir=EXPORTS_DIR)
 
 
 def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
-    """Core analysis orchestrator: Extract -> 4-Step Preprocess -> 2-Tier NLP -> Cache."""
-    post_id = request.post_id or "yt_demo_72neg"
-    platform = request.platform.lower()
+    """Core analysis orchestrator: Parse URL -> Extract -> 4-Step Preprocess -> 2-Tier NLP -> Cache."""
+    raw_input = request.post_id or request.post_url or "yt_demo_72neg"
+    clean_id, detected_platform, canonical_url = parse_url_and_detect_platform(raw_input)
 
-    # Step A: Comment & Review Extraction (Uncapped by default)
+    platform = (request.platform or detected_platform or "youtube").lower()
+    post_url = request.post_url or canonical_url
+    is_demo = request.is_demo or (clean_id in DEMO_POST_IDS and not request.post_url and "http" not in raw_input)
+
+    # Step A: Comment & Review Extraction (Keyless Live Scraper or Demo Fallback)
     pages_fetched = 1
     unbounded = request.unbounded_fetch
+    data_source = "Live Web Scrape"
 
     if request.comments and len(request.comments) > 0:
         raw_comments = request.comments
-        post_url = request.post_url or f"https://www.{platform}.com/{post_id}"
+        data_source = "User Provided Comments Payload"
     elif platform == "youtube":
-        extractor = YouTubeExtractor()
-        post_data = extractor.extract(post_id, max_comments=None if unbounded else 1500)
+        extractor = YouTubeExtractor(api_key=request.youtube_api_key)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
         unbounded = post_data.unbounded_fetch
+        is_demo = post_data.is_demo
+        data_source = post_data.data_source
     elif platform == "instagram":
-        extractor = InstagramExtractor()
-        post_data = extractor.extract(post_id, max_comments=None if unbounded else 1500)
+        extractor = InstagramExtractor(access_token=request.instagram_access_token)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
         unbounded = post_data.unbounded_fetch
+        is_demo = post_data.is_demo
+        data_source = post_data.data_source
     elif platform == "amazon":
-        extractor = AmazonExtractor()
-        post_data = extractor.extract(post_id, max_comments=None if unbounded else 1500)
+        extractor = AmazonExtractor(api_key=request.scraper_api_key)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
         unbounded = post_data.unbounded_fetch
+        is_demo = post_data.is_demo
+        data_source = post_data.data_source
     elif platform == "flipkart":
-        extractor = FlipkartExtractor()
-        post_data = extractor.extract(post_id, max_comments=None if unbounded else 1500)
+        extractor = FlipkartExtractor(api_key=request.scraper_api_key)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
         unbounded = post_data.unbounded_fetch
+        is_demo = post_data.is_demo
+        data_source = post_data.data_source
     else:
         raise ValueError(f"Unsupported platform: {platform}")
 
     total_raw = len(raw_comments)
+    if total_raw == 0:
+        raise ValueError(f"No comments or reviews extracted for {platform} target '{clean_id}'.")
 
     # Step B: 4-Step Preprocessing Filter
     clean_comments, removed_count = preprocessor.filter_bots_and_spam(raw_comments)
@@ -144,17 +158,13 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         platform=platform,
     )
 
-    # Pick representative sample comments across sentiments for UI preview (e.g. 35 comments)
-    sample_preview = (
-        [c for c in processed_comments if c.sentiment == "Negative"][:20]
-        + [c for c in processed_comments if c.sentiment == "Positive"][:10]
-        + [c for c in processed_comments if c.sentiment == "Neutral"][:5]
-    )
+    # Provide large scrollable preview (up to 250 comments) for interactive feed
+    sample_preview = processed_comments[:250]
 
     # Build CachedReport
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     report = CachedReport(
-        post_id=post_id,
+        post_id=clean_id,
         post_url=post_url,
         platform=platform,
         model_used=request.model_option,
@@ -169,6 +179,8 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         unbounded_fetch=unbounded,
         pages_fetched=pages_fetched,
         star_rating_breakdown=star_breakdown,
+        is_demo=is_demo,
+        data_source=data_source,
     )
 
     # Step D: Atomic Write to Cache
@@ -195,8 +207,8 @@ async def serve_dashboard():
 @app.post("/api/analyze", response_model=CachedReport)
 async def analyze_post(request: AnalyzeRequest, background_tasks: BackgroundTasks):
     """
-    Run extraction, 4-step preprocessing, 2-tier NLP classification,
-    and cache lightweight report.
+    Run extraction (live keyless scraper or demo preset), 4-step preprocessing,
+    2-tier NLP classification, and cache lightweight report.
     """
     try:
         report = execute_analysis_pipeline(request)
@@ -204,6 +216,8 @@ async def analyze_post(request: AnalyzeRequest, background_tasks: BackgroundTask
         background_tasks.add_task(exporter.export_to_csv, report.post_id)
         background_tasks.add_task(exporter.export_to_pdf, report.post_id)
         return report
+    except ValueError as ve:
+        raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -214,17 +228,10 @@ async def get_cached_report(post_id: str):
     Retrieve pre-computed sentiment report directly from cache in <5ms.
     If not cached yet, auto-computes using recognized preset.
     """
-    report = cache_mgr.load_report(post_id)
+    clean_id, detected_platform, _ = parse_url_and_detect_platform(post_id)
+    report = cache_mgr.load_report(clean_id)
     if not report:
-        platform = "youtube"
-        if post_id.startswith("amz_") or len(post_id) == 10 and post_id.startswith("B0"):
-            platform = "amazon"
-        elif post_id.startswith("flp_") or post_id.startswith("MOB"):
-            platform = "flipkart"
-        elif post_id.startswith("ig_"):
-            platform = "instagram"
-
-        req = AnalyzeRequest(post_id=post_id, platform=platform)
+        req = AnalyzeRequest(post_id=clean_id, platform=detected_platform, is_demo=(clean_id in DEMO_POST_IDS))
         report = execute_analysis_pipeline(req)
     return report
 
@@ -232,13 +239,14 @@ async def get_cached_report(post_id: str):
 @app.get("/api/export/{post_id}/csv")
 async def export_csv(post_id: str):
     """Generate or stream cached CSV report directly from cache in <1s."""
+    clean_id, _, _ = parse_url_and_detect_platform(post_id)
     try:
-        if not cache_mgr.is_cached(post_id):
-            get_cached_report_sync = await get_cached_report(post_id)
-        csv_path, elapsed = exporter.export_to_csv(post_id)
+        if not cache_mgr.is_cached(clean_id):
+            get_cached_report_sync = await get_cached_report(clean_id)
+        csv_path, elapsed = exporter.export_to_csv(clean_id)
         return FileResponse(
             path=str(csv_path),
-            filename=f"sentiment_report_{post_id}.csv",
+            filename=f"sentiment_report_{clean_id}.csv",
             media_type="text/csv",
             headers={"X-Export-Time-Seconds": f"{elapsed:.4f}"},
         )
@@ -249,13 +257,14 @@ async def export_csv(post_id: str):
 @app.get("/api/export/{post_id}/pdf")
 async def export_pdf(post_id: str):
     """Generate or stream polished ReportLab PDF report directly from cache in <1s."""
+    clean_id, _, _ = parse_url_and_detect_platform(post_id)
     try:
-        if not cache_mgr.is_cached(post_id):
-            get_cached_report_sync = await get_cached_report(post_id)
-        pdf_path, elapsed = exporter.export_to_pdf(post_id)
+        if not cache_mgr.is_cached(clean_id):
+            get_cached_report_sync = await get_cached_report(clean_id)
+        pdf_path, elapsed = exporter.export_to_pdf(clean_id)
         return FileResponse(
             path=str(pdf_path),
-            filename=f"sentiment_report_{post_id}.pdf",
+            filename=f"sentiment_report_{clean_id}.pdf",
             media_type="application/pdf",
             headers={"X-Export-Time-Seconds": f"{elapsed:.4f}"},
         )

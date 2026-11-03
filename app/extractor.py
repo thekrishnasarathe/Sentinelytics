@@ -6,3 +6,4 @@ if str(_sentiment_module_dir) not in sys.path:
     sys.path.insert(0, str(_sentiment_module_dir))
 
 from sentiment_module.app.extractor import *
+

@@ -29,17 +29,19 @@ class PostInput(BaseModel):
     comments: List[CommentInput] = Field(default_factory=list, description="List of raw comments or reviews")
     unbounded_fetch: bool = Field(default=True, description="Whether comments were fetched uncapped without limit")
     pages_fetched: int = Field(default=1, description="Number of pagination pages fetched")
+    is_demo: bool = Field(default=False, description="Whether data is from an offline sample preset")
+    data_source: str = Field(default="Live Web Scrape (Zero API Key)", description="Provenance of data")
 
 
 class AnalyzeRequest(BaseModel):
-    post_id: Optional[str] = Field(default="yt_demo_72neg", description="Post ID, Video ID, ASIN, or FSN")
+    post_id: Optional[str] = Field(default="yt_demo_72neg", description="Post ID, Video ID, ASIN, FSN, or full URL")
     post_url: Optional[str] = Field(
-        default="https://www.youtube.com/watch?v=flagged_demo_video",
-        description="Public post or product URL"
+        default=None,
+        description="Optional full public URL to video or product"
     )
-    platform: Literal["youtube", "instagram", "amazon", "flipkart"] = Field(
-        default="youtube",
-        description="Platform: youtube, instagram, amazon, flipkart"
+    platform: Optional[str] = Field(
+        default=None,
+        description="Optional platform override (youtube, instagram, amazon, flipkart); auto-detected if omitted"
     )
     model_option: Literal["vader_hybrid", "xlm_roberta", "gemini_flash"] = Field(
         default="vader_hybrid",
@@ -50,6 +52,12 @@ class AnalyzeRequest(BaseModel):
         description="Optional pre-extracted comments. If omitted, extractor pulls live or loads demo dataset."
     )
     unbounded_fetch: bool = Field(default=True, description="Whether to fetch all available comments without cap limit")
+    is_demo: bool = Field(default=False, description="True if explicitly requesting the demo preset dataset")
+    # Runtime optional API Keys from UI modal
+    youtube_api_key: Optional[str] = Field(default=None, description="Optional YouTube Data API v3 key")
+    gemini_api_key: Optional[str] = Field(default=None, description="Optional Gemini API key")
+    instagram_access_token: Optional[str] = Field(default=None, description="Optional Instagram access token")
+    scraper_api_key: Optional[str] = Field(default=None, description="Optional Scraper API key for Amazon/Flipkart")
 
 
 class ProcessedComment(BaseModel):
@@ -110,4 +118,12 @@ class CachedReport(BaseModel):
     star_rating_breakdown: Optional[Dict[str, int]] = Field(
         default=None,
         description="1 to 5 star rating distribution for e-commerce reviews"
+    )
+    is_demo: bool = Field(
+        default=False,
+        description="Whether this report is from an offline sample preset or scraped live"
+    )
+    data_source: str = Field(
+        default="Live Web Scrape (Zero API Key)",
+        description="Detailed provenance of data"
     )

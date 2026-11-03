@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,33 +8,42 @@
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; }
+    body {
+      font-family: 'Inter', sans-serif;
+    }
   </style>
 </head>
+
 <body class="bg-slate-950 text-slate-100 min-h-screen">
   <!-- Top Navigation Bar -->
   <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-50">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
       <div class="flex items-center space-x-3">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-500 via-purple-600 to-indigo-600 flex items-center justify-center font-black text-white text-lg shadow-lg shadow-rose-500/20">
+        <div
+          class="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-500 via-purple-600 to-indigo-600 flex items-center justify-center font-black text-white text-lg shadow-lg shadow-rose-500/20">
           S2
         </div>
         <div>
           <div class="flex items-center space-x-2">
             <h1 class="text-base font-extrabold text-white tracking-tight">Social Media & E-Commerce Sentiment</h1>
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">v2.0 Platform</span>
+            <span
+              class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">v2.0
+              Platform</span>
           </div>
           <p class="text-xs text-slate-400">2-Tier Polarity & Root-Cause Pipeline • Uncapped Ingestion</p>
         </div>
       </div>
       <div class="flex items-center space-x-3">
-        <span class="inline-flex items-center px-3 py-1 rounded-xl text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800">
+        <span
+          class="inline-flex items-center px-3 py-1 rounded-xl text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800">
           <span class="w-1.5 h-1.5 mr-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
           Sub-Second Engine Ready (&lt;1s)
         </span>
-        <span class="inline-flex items-center px-3 py-1 rounded-xl text-xs font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-800">
+        <span
+          class="inline-flex items-center px-3 py-1 rounded-xl text-xs font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-800">
           Uncapped Mode (100% Ingested)
         </span>
       </div>
@@ -53,7 +63,9 @@
         <button onclick="selectPreset('yt_demo_72neg', 'youtube')" id="preset-yt"
           class="preset-card relative p-3.5 rounded-2xl border text-left transition-all bg-slate-900 border-indigo-500 ring-2 ring-indigo-500/40">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800 uppercase">Social Media</span>
+            <span
+              class="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800 uppercase">Social
+              Media</span>
             <span class="text-[10px] font-mono text-indigo-400">1,045 Comments</span>
           </div>
           <h3 class="text-xs font-bold text-white mt-2">YouTube Flagged Upload</h3>
@@ -63,7 +75,9 @@
         <button onclick="selectPreset('ig_demo_creator_reel', 'instagram')" id="preset-ig"
           class="preset-card relative p-3.5 rounded-2xl border text-left transition-all bg-slate-900/60 border-slate-800 hover:border-slate-700">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 uppercase">Social Media</span>
+            <span
+              class="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 uppercase">Social
+              Media</span>
             <span class="text-[10px] font-mono text-slate-400">1,045 Comments</span>
           </div>
           <h3 class="text-xs font-bold text-white mt-2">Instagram Creator Reel</h3>
@@ -73,7 +87,8 @@
         <button onclick="selectPreset('amz_smartphone_reviews', 'amazon')" id="preset-amz"
           class="preset-card relative p-3.5 rounded-2xl border text-left transition-all bg-slate-900/60 border-slate-800 hover:border-slate-700">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 uppercase">E-Commerce</span>
+            <span
+              class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 uppercase">E-Commerce</span>
             <span class="text-[10px] font-mono text-amber-400">1,250 Reviews</span>
           </div>
           <h3 class="text-xs font-bold text-white mt-2">Amazon Smartphone Reviews</h3>
@@ -83,7 +98,8 @@
         <button onclick="selectPreset('flp_electronics_sale', 'flipkart')" id="preset-flp"
           class="preset-card relative p-3.5 rounded-2xl border text-left transition-all bg-slate-900/60 border-slate-800 hover:border-slate-700">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800 uppercase">E-Commerce</span>
+            <span
+              class="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800 uppercase">E-Commerce</span>
             <span class="text-[10px] font-mono text-sky-400">1,250 Reviews</span>
           </div>
           <h3 class="text-xs font-bold text-white mt-2">Flipkart Electronics Sale</h3>
@@ -102,7 +118,8 @@
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1.5">Platform Channel</label>
-          <select id="platformSelect" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold">
+          <select id="platformSelect"
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold">
             <optgroup label="Social Media">
               <option value="youtube">YouTube (Data API v3)</option>
               <option value="instagram">Instagram (Graph / Webhook)</option>
@@ -115,7 +132,8 @@
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1.5">Model Engine</label>
-          <select id="modelSelect" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold">
+          <select id="modelSelect"
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold">
             <option value="vader_hybrid">VADER + Hinglish & Emojis (Ultra-Fast)</option>
             <option value="xlm_roberta">XLM-RoBERTa (Multilingual)</option>
             <option value="gemini_flash">Gemini 2.5 Flash (LLM Batching)</option>
@@ -124,7 +142,8 @@
         <div>
           <button id="runBtn" onclick="runAnalysis()"
             class="w-full px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 via-purple-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 font-bold text-white text-xs shadow-lg shadow-indigo-600/25 transition flex items-center justify-center space-x-2">
-            <span id="btnSpinner" class="hidden animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent"></span>
+            <span id="btnSpinner"
+              class="hidden animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent"></span>
             <span id="btnText">Run Uncapped Analysis</span>
           </button>
         </div>
@@ -132,7 +151,8 @@
     </div>
 
     <!-- High Negative Alert Banner (>70%) -->
-    <div id="alertBanner" class="hidden bg-rose-950/70 border-2 border-rose-500/80 rounded-2xl p-5 shadow-2xl shadow-rose-950/60">
+    <div id="alertBanner"
+      class="hidden bg-rose-950/70 border-2 border-rose-500/80 rounded-2xl p-5 shadow-2xl shadow-rose-950/60">
       <div class="flex items-start space-x-3">
         <div class="p-2.5 bg-rose-900/80 rounded-xl text-rose-300 font-bold text-xl">⚠️</div>
         <div class="flex-1">
@@ -140,12 +160,14 @@
             <h2 class="text-sm font-extrabold text-rose-200 uppercase tracking-wide">
               Critical Sentiment Alert: Negative Sentiment Exceeds 70% Threshold
             </h2>
-            <span id="alertPctBadge" class="self-start sm:self-auto px-3 py-1 rounded-full text-xs font-black bg-rose-500 text-white">
+            <span id="alertPctBadge"
+              class="self-start sm:self-auto px-3 py-1 rounded-full text-xs font-black bg-rose-500 text-white">
               72.0% Negative
             </span>
           </div>
           <p id="alertDesc" class="text-xs text-rose-300/90 mt-1.5 leading-relaxed">
-            High customer dissatisfaction detected. Review the Tier-2 root-cause sub-tags below for immediate remediation.
+            High customer dissatisfaction detected. Review the Tier-2 root-cause sub-tags below for immediate
+            remediation.
           </p>
         </div>
       </div>
@@ -200,9 +222,12 @@
           <div class="relative w-40 h-40 flex items-center justify-center">
             <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100" id="donutSvg">
               <circle cx="50" cy="50" r="38" fill="transparent" stroke="#1e293b" stroke-width="14"></circle>
-              <circle id="donutNeg" cx="50" cy="50" r="38" fill="transparent" stroke="#f43f5e" stroke-width="14" stroke-dasharray="0 238.76"></circle>
-              <circle id="donutPos" cx="50" cy="50" r="38" fill="transparent" stroke="#10b981" stroke-width="14" stroke-dasharray="0 238.76"></circle>
-              <circle id="donutNeu" cx="50" cy="50" r="38" fill="transparent" stroke="#38bdf8" stroke-width="14" stroke-dasharray="0 238.76"></circle>
+              <circle id="donutNeg" cx="50" cy="50" r="38" fill="transparent" stroke="#f43f5e" stroke-width="14"
+                stroke-dasharray="0 238.76"></circle>
+              <circle id="donutPos" cx="50" cy="50" r="38" fill="transparent" stroke="#10b981" stroke-width="14"
+                stroke-dasharray="0 238.76"></circle>
+              <circle id="donutNeu" cx="50" cy="50" r="38" fill="transparent" stroke="#38bdf8" stroke-width="14"
+                stroke-dasharray="0 238.76"></circle>
             </svg>
             <div class="absolute text-center">
               <span id="donutCenterVal" class="text-lg font-extrabold text-white">1,000</span>
@@ -233,7 +258,8 @@
             <h3 class="text-sm font-bold text-white">Chart 2: Tier-2 Negative Root-Cause Breakdown</h3>
             <p class="text-xs text-slate-400" id="chart2Subtitle">Domain-adaptive diagnostics for negative feedback</p>
           </div>
-          <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-800">Deep Dive Active</span>
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-800">Deep
+            Dive Active</span>
         </div>
         <div class="space-y-3" id="tier2Container">
           <!-- Dynamically populated -->
@@ -253,8 +279,10 @@
           <!-- Dynamically populated bars -->
         </div>
         <div class="flex items-center justify-center space-x-6 mt-3 text-xs">
-          <span class="text-rose-400 flex items-center space-x-1.5"><span class="w-2.5 h-2.5 bg-rose-500 rounded"></span><span>Negative Wave (Spike onset)</span></span>
-          <span class="text-emerald-400 flex items-center space-x-1.5"><span class="w-2.5 h-2.5 bg-emerald-500 rounded"></span><span>Positive Baseline</span></span>
+          <span class="text-rose-400 flex items-center space-x-1.5"><span
+              class="w-2.5 h-2.5 bg-rose-500 rounded"></span><span>Negative Wave (Spike onset)</span></span>
+          <span class="text-emerald-400 flex items-center space-x-1.5"><span
+              class="w-2.5 h-2.5 bg-emerald-500 rounded"></span><span>Positive Baseline</span></span>
         </div>
       </div>
 
@@ -274,11 +302,14 @@
     </div>
 
     <!-- Sub-Second Export Panel -->
-    <div class="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-900/50 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div
+      class="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-900/50 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
       <div>
         <div class="flex items-center space-x-2">
           <h3 class="text-sm font-bold text-white">⚡ Sub-Second (&lt;1s) Pre-Computed Exporters</h3>
-          <span class="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/30">Zero Inference Wait</span>
+          <span
+            class="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/30">Zero
+            Inference Wait</span>
         </div>
         <p class="text-xs text-slate-400 mt-1">
           Reads directly from atomic JSON cache. Download executive ReportLab PDF or multi-sheet CSV report instantly.
@@ -307,10 +338,14 @@
           <p class="text-xs text-slate-400">Classified with Hinglish, Emojis, Star Ratings, and Root Causes</p>
         </div>
         <div class="flex items-center space-x-2">
-          <button onclick="filterFeed('ALL')" class="feed-btn px-2.5 py-1 text-xs rounded-lg font-medium bg-slate-800 text-white border border-slate-700">All</button>
-          <button onclick="filterFeed('Negative')" class="feed-btn px-2.5 py-1 text-xs rounded-lg font-medium bg-slate-900 text-rose-400 border border-slate-800">Negative</button>
-          <button onclick="filterFeed('Positive')" class="feed-btn px-2.5 py-1 text-xs rounded-lg font-medium bg-slate-900 text-emerald-400 border border-slate-800">Positive</button>
-          <button onclick="filterFeed('Neutral')" class="feed-btn px-2.5 py-1 text-xs rounded-lg font-medium bg-slate-900 text-sky-400 border border-slate-800">Neutral</button>
+          <button onclick="filterFeed('ALL')"
+            class="feed-btn px-2.5 py-1 text-xs rounded-lg font-medium bg-slate-800 text-white border border-slate-700">All</button>
+          <button onclick="filterFeed('Negative')"
+            class="feed-btn px-2.5 py-1 text-xs rounded-lg font-medium bg-slate-900 text-rose-400 border border-slate-800">Negative</button>
+          <button onclick="filterFeed('Positive')"
+            class="feed-btn px-2.5 py-1 text-xs rounded-lg font-medium bg-slate-900 text-emerald-400 border border-slate-800">Positive</button>
+          <button onclick="filterFeed('Neutral')"
+            class="feed-btn px-2.5 py-1 text-xs rounded-lg font-medium bg-slate-900 text-sky-400 border border-slate-800">Neutral</button>
         </div>
       </div>
       <div class="space-y-2.5 max-h-96 overflow-y-auto pr-1" id="commentsFeed">
@@ -366,7 +401,7 @@
             renderReport(data);
             return;
           }
-        } catch (e2) {}
+        } catch (e2) { }
       } finally {
         btnSpinner.classList.add('hidden');
         btnText.innerText = 'Run Uncapped Analysis';
@@ -545,8 +580,8 @@
       const filtered = currentReport.sample_comments.filter(c => activeFilter === 'ALL' || c.sentiment === activeFilter);
       filtered.forEach(c => {
         const sentClass = c.sentiment === 'Negative' ? 'text-rose-400 border-rose-900 bg-rose-950/60' :
-                          c.sentiment === 'Positive' ? 'text-emerald-400 border-emerald-900 bg-emerald-950/60' :
-                          'text-sky-400 border-sky-900 bg-sky-950/60';
+          c.sentiment === 'Positive' ? 'text-emerald-400 border-emerald-900 bg-emerald-950/60' :
+            'text-sky-400 border-sky-900 bg-sky-950/60';
         const card = document.createElement('div');
         card.className = 'bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 text-xs flex flex-col space-y-1.5';
         card.innerHTML = `
@@ -609,4 +644,5 @@
     });
   </script>
 </body>
+
 </html>
