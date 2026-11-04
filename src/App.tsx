@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Download,
   FileText,
@@ -79,6 +79,7 @@ export interface CachedReport {
   star_rating_breakdown?: Record<string, number> | null;
   is_demo?: boolean;
   data_source?: string;
+  data_source_badge?: string;
 }
 
 // --- Built-in Demo Presets ---
@@ -128,11 +129,14 @@ export default function App() {
   const [platform, setPlatform] = useState<'youtube' | 'instagram' | 'amazon' | 'flipkart'>('youtube');
   const [modelOption, setModelOption] = useState<'vader_hybrid' | 'xlm_roberta' | 'gemini_flash'>('vader_hybrid');
   const [unboundedFetch, setUnboundedFetch] = useState<boolean>(true);
+  const [isDemoAction, setIsDemoAction] = useState<boolean>(true);
+  const abortRef = useRef<AbortController | null>(null);
 
   // API Keys Modal State
   const [showKeysModal, setShowKeysModal] = useState<boolean>(false);
   const [youtubeApiKey, setYoutubeApiKey] = useState<string>(() => localStorage.getItem('YOUTUBE_API_KEY') || '');
   const [geminiApiKey, setGeminiApiKey] = useState<string>(() => localStorage.getItem('GEMINI_API_KEY') || '');
+  const [apifyToken, setApifyToken] = useState<string>(() => localStorage.getItem('APIFY_API_TOKEN') || '');
   const [instagramToken, setInstagramToken] = useState<string>(() => localStorage.getItem('INSTAGRAM_ACCESS_TOKEN') || '');
   const [scraperApiKey, setScraperApiKey] = useState<string>(() => localStorage.getItem('SCRAPER_API_KEY') || '');
 
@@ -146,6 +150,18 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [feedFilter, setFeedFilter] = useState<'ALL' | 'Negative' | 'Positive' | 'Neutral'>('ALL');
   const [selectedRootCauseFilter, setSelectedRootCauseFilter] = useState<string>('ALL');
+
+  // Fetch server-configured keys on mount
+  useEffect(() => {
+    fetch('/api/settings/keys')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.masked_keys) {
+          console.log('Server keys status:', data);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Auto-detect platform when typing or pasting URLs
   const handleInputChange = (val: string) => {
@@ -165,13 +181,36 @@ export default function App() {
   // Trigger initial demo on mount
   useEffect(() => {
     handleExecuteAnalysis('yt_demo_72neg', 'youtube', 'vader_hybrid', true);
+    return () => {
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+    };
   }, []);
 
-  const saveApiKeys = () => {
+  const saveApiKeys = async () => {
     localStorage.setItem('YOUTUBE_API_KEY', youtubeApiKey);
     localStorage.setItem('GEMINI_API_KEY', geminiApiKey);
+    localStorage.setItem('APIFY_API_TOKEN', apifyToken);
     localStorage.setItem('INSTAGRAM_ACCESS_TOKEN', instagramToken);
     localStorage.setItem('SCRAPER_API_KEY', scraperApiKey);
+
+    try {
+      await fetch('/api/settings/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          youtube_api_key: youtubeApiKey || undefined,
+          gemini_api_key: geminiApiKey || undefined,
+          apify_api_token: apifyToken || undefined,
+          instagram_access_token: instagramToken || undefined,
+          scraper_api_key: scraperApiKey || undefined,
+        })
+      });
+    } catch (err) {
+      console.warn('Could not sync keys to server:', err);
+    }
+
     setShowKeysModal(false);
   };
 
@@ -181,6 +220,7 @@ export default function App() {
     setSelectedPreset(presetId);
     setInputTarget(presetId);
     setPlatform(found.platform);
+    setIsDemoAction(true);
     handleExecuteAnalysis(presetId, found.platform, modelOption, true);
   };
 
@@ -190,12 +230,19 @@ export default function App() {
     targetModel: string,
     isExplicitDemo: boolean
   ) => {
+    // Abort previous pending fetch to prevent race conditions or UI flickering
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setIsLoading(true);
+    setIsDemoAction(isExplicitDemo);
     setErrorMessage(null);
     setExportLatency(null);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s safety timeout for deep live scraping
+    const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s safety timeout for deep live scraping
 
     try {
       const res = await fetch('/api/analyze', {
@@ -210,6 +257,7 @@ export default function App() {
           is_demo: isExplicitDemo,
           youtube_api_key: youtubeApiKey || undefined,
           gemini_api_key: geminiApiKey || undefined,
+          apify_api_token: apifyToken || undefined,
           instagram_access_token: instagramToken || undefined,
           scraper_api_key: scraperApiKey || undefined,
         })
@@ -227,17 +275,22 @@ export default function App() {
       }
 
       const data: CachedReport = await res.json();
-      setReport(data);
+      if (abortRef.current === controller) {
+        setReport(data);
+      }
     } catch (err: any) {
       clearTimeout(timeoutId);
-      console.error('Analysis failed:', err);
-      const isTimeout = err.name === 'AbortError';
-      const msg = isTimeout
-        ? 'Live request timed out after 45s. The target site may be throttling connections.'
-        : err.message || 'Unable to connect to live analysis server.';
-      setErrorMessage(msg);
+      if (err.name === 'AbortError') {
+        if (abortRef.current !== controller) return; // Ignore intentional abort from another user action
+        setErrorMessage('Live request timed out after 45s. The target site may be throttling connections.');
+      } else {
+        console.error('Analysis failed:', err);
+        setErrorMessage(err.message || 'Unable to connect to live analysis server.');
+      }
     } finally {
-      setIsLoading(false);
+      if (abortRef.current === controller) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -309,9 +362,9 @@ export default function App() {
     return list;
   }, [report, feedFilter, selectedRootCauseFilter, searchQuery]);
 
-  const negRow = report?.breakdown.find(r => r.category === 'Negative') || { comment_count: 0, percentage: 0 };
-  const posRow = report?.breakdown.find(r => r.category === 'Positive') || { comment_count: 0, percentage: 0 };
-  const neuRow = report?.breakdown.find(r => r.category === 'Neutral') || { comment_count: 0, percentage: 0 };
+  const negRow = report?.breakdown?.find(r => r.category === 'Negative') || { comment_count: 0, percentage: 0 };
+  const posRow = report?.breakdown?.find(r => r.category === 'Positive') || { comment_count: 0, percentage: 0 };
+  const neuRow = report?.breakdown?.find(r => r.category === 'Neutral') || { comment_count: 0, percentage: 0 };
   const isEcommerce = report?.platform === 'amazon' || report?.platform === 'flipkart';
 
   return (
@@ -365,7 +418,7 @@ export default function App() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {DEMO_PRESETS.map((preset) => {
               const Icon = preset.icon;
-              const isSelected = selectedPreset === preset.id && report?.is_demo;
+              const isSelected = selectedPreset === preset.id && (report?.is_demo ?? isDemoAction);
               return (
                 <button
                   key={preset.id}
@@ -454,6 +507,7 @@ export default function App() {
               <button
                 onClick={() => {
                   setSelectedPreset('');
+                  setIsDemoAction(false);
                   handleExecuteAnalysis(inputTarget, platform, modelOption, false);
                 }}
                 disabled={isLoading}
@@ -462,7 +516,7 @@ export default function App() {
                 {isLoading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                    <span>Scraping Live Comments...</span>
+                    <span>{isDemoAction ? 'Loading Demo Benchmark...' : 'Scraping Live Comments...'}</span>
                   </>
                 ) : (
                   <>
@@ -474,6 +528,37 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* Loading Skeleton State (Smooth visual feedback during ingestion) */}
+        {isLoading && !report && (
+          <div className="space-y-6 animate-pulse">
+            <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin" />
+                <div>
+                  <h4 className="text-sm font-bold text-slate-200">
+                    {isDemoAction ? 'Loading Demo Benchmark Dataset...' : 'Connecting to Live Scraper & Ingesting Comments...'}
+                  </h4>
+                  <p className="text-xs text-slate-400">Filtering bots, calculating VADER & Hinglish polarity, and categorizing root causes</p>
+                </div>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-800">
+                Processing...
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="h-24 bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4"></div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="h-64 bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5"></div>
+              <div className="h-64 bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5"></div>
+            </div>
+          </div>
+        )}
 
         {/* Honest Error Alert Banner (if scraping fails or CAPTCHA detected) */}
         {errorMessage && (
@@ -507,7 +592,7 @@ export default function App() {
         {/* Data Provenance Badge: LIVE SCRAPED DATA vs OFFLINE DEMO PRESET */}
         {report && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
-            <div className="flex items-center space-x-2.5">
+            <div className="flex items-center flex-wrap gap-2.5">
               {report.is_demo ? (
                 <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-amber-950 text-amber-300 border border-amber-800">
                   <span className="w-2 h-2 mr-1.5 rounded-full bg-amber-400"></span>
@@ -517,6 +602,12 @@ export default function App() {
                 <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
                   <span className="w-2 h-2 mr-1.5 rounded-full bg-emerald-400 animate-ping"></span>
                   🟢 LIVE SCRAPED DATA (Real Comments Fetched from URL)
+                </span>
+              )}
+
+              {report.data_source_badge && (
+                <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-indigo-950/80 text-indigo-300 border border-indigo-700/80 shadow-sm">
+                  ⚡ {report.data_source_badge}
                 </span>
               )}
 
@@ -716,7 +807,7 @@ export default function App() {
               </div>
 
               <div className="space-y-3.5">
-                {report.tier2_root_causes.map((rc, idx) => (
+                {(report.tier2_root_causes || []).map((rc, idx) => (
                   <div key={idx} className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3">
                     <div className="flex items-center justify-between text-xs mb-1.5">
                       <span className="font-bold text-slate-200">{rc.category}</span>
@@ -854,7 +945,7 @@ export default function App() {
                   <div>
                     <span className="font-semibold text-rose-400 mb-1.5 block">Top Recurring Negative Complaint Clusters:</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {(report.breakdown.find(r => r.category === 'Negative')?.top_keywords || []).map((kw, i) => (
+                      {((report.breakdown || []).find(r => r.category === 'Negative')?.top_keywords || []).map((kw, i) => (
                         <span key={i} className="px-2.5 py-1 rounded-lg bg-rose-950/60 text-rose-300 border border-rose-800 text-[11px] font-semibold">
                           {kw}
                         </span>
@@ -864,7 +955,7 @@ export default function App() {
                   <div className="pt-2">
                     <span className="font-semibold text-emerald-400 mb-1.5 block">Top Recurring Positive Praise Clusters:</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {(report.breakdown.find(r => r.category === 'Positive')?.top_keywords || []).map((kw, i) => (
+                      {((report.breakdown || []).find(r => r.category === 'Positive')?.top_keywords || []).map((kw, i) => (
                         <span key={i} className="px-2.5 py-1 rounded-lg bg-emerald-950/60 text-emerald-300 border border-emerald-800 text-[11px] font-semibold">
                           {kw}
                         </span>
@@ -923,7 +1014,7 @@ export default function App() {
               <div>
                 <h3 className="text-sm font-bold text-white">Audited Comment & Review Explorer</h3>
                 <p className="text-xs text-slate-400">
-                  Showing <span className="text-white font-bold">{filteredComments.length}</span> of {report.sample_comments.length} audited items
+                  Showing <span className="text-white font-bold">{filteredComments.length}</span> of {(report.sample_comments || []).length} audited items
                 </p>
               </div>
 
@@ -947,7 +1038,7 @@ export default function App() {
                       feedFilter === 'ALL' ? 'bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    All ({report.sample_comments.length})
+                    All ({(report.sample_comments || []).length})
                   </button>
                   <button
                     onClick={() => setFeedFilter('Negative')}
@@ -955,7 +1046,7 @@ export default function App() {
                       feedFilter === 'Negative' ? 'bg-rose-500 text-white shadow' : 'text-rose-400 hover:text-rose-300'
                     }`}
                   >
-                    Negative ({report.sample_comments.filter(c => c.sentiment === 'Negative').length})
+                    Negative ({(report.sample_comments || []).filter(c => c.sentiment === 'Negative').length})
                   </button>
                   <button
                     onClick={() => setFeedFilter('Positive')}
@@ -963,7 +1054,7 @@ export default function App() {
                       feedFilter === 'Positive' ? 'bg-emerald-500 text-white shadow' : 'text-emerald-400 hover:text-emerald-300'
                     }`}
                   >
-                    Positive ({report.sample_comments.filter(c => c.sentiment === 'Positive').length})
+                    Positive ({(report.sample_comments || []).filter(c => c.sentiment === 'Positive').length})
                   </button>
                   <button
                     onClick={() => setFeedFilter('Neutral')}
@@ -971,7 +1062,7 @@ export default function App() {
                       feedFilter === 'Neutral' ? 'bg-sky-500 text-white shadow' : 'text-sky-400 hover:text-sky-300'
                     }`}
                   >
-                    Neutral ({report.sample_comments.filter(c => c.sentiment === 'Neutral').length})
+                    Neutral ({(report.sample_comments || []).filter(c => c.sentiment === 'Neutral').length})
                   </button>
                 </div>
               </div>
@@ -1080,12 +1171,23 @@ export default function App() {
               </div>
 
               <div>
+                <label className="block text-slate-300 font-semibold mb-1">Apify Cloud Scraper API Token (For Instagram & E-Comm)</label>
+                <input
+                  type="password"
+                  value={apifyToken}
+                  onChange={(e) => setApifyToken(e.target.value)}
+                  placeholder="apify_api_..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
                 <label className="block text-slate-300 font-semibold mb-1">Google Gemini API Key (Optional)</label>
                 <input
                   type="password"
                   value={geminiApiKey}
                   onChange={(e) => setGeminiApiKey(e.target.value)}
-                  placeholder="AIzaSy..."
+                  placeholder="AQ.Ab8..."
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -1096,7 +1198,7 @@ export default function App() {
                   type="password"
                   value={instagramToken}
                   onChange={(e) => setInstagramToken(e.target.value)}
-                  placeholder="EAA..."
+                  placeholder="EAGjR..."
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -1107,7 +1209,7 @@ export default function App() {
                   type="password"
                   value={scraperApiKey}
                   onChange={(e) => setScraperApiKey(e.target.value)}
-                  placeholder="Rainforest / RapidAPI / Apify token"
+                  placeholder="Rainforest / RapidAPI token"
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>

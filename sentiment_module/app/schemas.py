@@ -31,6 +31,7 @@ class PostInput(BaseModel):
     pages_fetched: int = Field(default=1, description="Number of pagination pages fetched")
     is_demo: bool = Field(default=False, description="Whether data is from an offline sample preset")
     data_source: str = Field(default="Live Web Scrape (Zero API Key)", description="Provenance of data")
+    data_source_badge: str = Field(default="LIVE: Direct Scraper", description="Short badge representation")
 
 
 class AnalyzeRequest(BaseModel):
@@ -56,6 +57,7 @@ class AnalyzeRequest(BaseModel):
     # Runtime optional API Keys from UI modal
     youtube_api_key: Optional[str] = Field(default=None, description="Optional YouTube Data API v3 key")
     gemini_api_key: Optional[str] = Field(default=None, description="Optional Gemini API key")
+    apify_api_token: Optional[str] = Field(default=None, description="Optional Apify API token")
     instagram_access_token: Optional[str] = Field(default=None, description="Optional Instagram access token")
     scraper_api_key: Optional[str] = Field(default=None, description="Optional Scraper API key for Amazon/Flipkart")
 
@@ -127,3 +129,24 @@ class CachedReport(BaseModel):
         default="Live Web Scrape (Zero API Key)",
         description="Detailed provenance of data"
     )
+    data_source_badge: str = Field(
+        default="LIVE: Direct Scraper",
+        description="Short badge identifier for extraction provenance"
+    )
+
+
+class SettingsKeysResponse(BaseModel):
+    youtube_api_key_configured: bool = Field(default=False)
+    gemini_api_key_configured: bool = Field(default=False)
+    apify_api_token_configured: bool = Field(default=False)
+    instagram_access_token_configured: bool = Field(default=False)
+    scraper_api_key_configured: bool = Field(default=False)
+    masked_keys: Dict[str, str] = Field(default_factory=dict)
+
+
+class SettingsKeysUpdate(BaseModel):
+    youtube_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    apify_api_token: Optional[str] = None
+    instagram_access_token: Optional[str] = None
+    scraper_api_key: Optional[str] = None

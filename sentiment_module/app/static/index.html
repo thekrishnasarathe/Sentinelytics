@@ -37,6 +37,10 @@
         </div>
       </div>
       <div class="flex items-center space-x-3">
+        <button onclick="openKeysModal()"
+          class="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-950/80 hover:bg-amber-900/80 text-amber-300 border border-amber-800 transition cursor-pointer">
+          🔑 API Keys & Scrapers
+        </button>
         <span
           class="inline-flex items-center px-3 py-1 rounded-xl text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800">
           <span class="w-1.5 h-1.5 mr-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
@@ -147,6 +151,26 @@
             <span id="btnText">Run Uncapped Analysis</span>
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- Data Provenance Badge: LIVE SCRAPED DATA vs OFFLINE DEMO PRESET -->
+    <div id="provenanceContainer" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
+      <div class="flex items-center flex-wrap gap-2.5">
+        <span id="provenanceModeBadge" class="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-amber-950 text-amber-300 border border-amber-800">
+          <span class="w-2 h-2 mr-1.5 rounded-full bg-amber-400"></span>
+          🧪 OFFLINE DEMO PRESET (Sample Dataset)
+        </span>
+        <span id="provenanceSourceBadge" class="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-indigo-950/80 text-indigo-300 border border-indigo-700/80 shadow-sm">
+          ⚡ DEMO PRESET
+        </span>
+        <span id="provenanceDetail" class="text-xs text-slate-400 font-mono hidden md:inline">
+          Provenance: Offline Sample Dataset
+        </span>
+      </div>
+      <div class="flex items-center space-x-2 text-xs text-slate-400">
+        <span class="font-semibold text-slate-300">Target:</span>
+        <span id="provenanceTarget" class="font-mono text-indigo-400">yt_demo_72neg</span>
       </div>
     </div>
 
@@ -415,6 +439,19 @@
       document.getElementById('pagesFetchedBadge').innerText = `Uncapped (${report.pages_fetched || 1} pages)`;
       document.getElementById('donutModelLabel').innerText = report.model_used;
 
+      // Update Data Provenance Badges
+      const modeBadge = document.getElementById('provenanceModeBadge');
+      if (report.is_demo) {
+        modeBadge.className = 'inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-amber-950 text-amber-300 border border-amber-800';
+        modeBadge.innerHTML = '<span class="w-2 h-2 mr-1.5 rounded-full bg-amber-400"></span>🧪 OFFLINE DEMO PRESET (Sample Dataset)';
+      } else {
+        modeBadge.className = 'inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-emerald-950 text-emerald-300 border border-emerald-800';
+        modeBadge.innerHTML = '<span class="w-2 h-2 mr-1.5 rounded-full bg-emerald-400 animate-ping"></span>🟢 LIVE SCRAPED DATA (Real Comments Fetched from URL)';
+      }
+      document.getElementById('provenanceSourceBadge').innerText = '⚡ ' + (report.data_source_badge || 'LIVE: Web Scraper');
+      document.getElementById('provenanceDetail').innerText = 'Provenance: ' + (report.data_source || 'Verified Source');
+      document.getElementById('provenanceTarget').innerText = report.post_id || 'Target';
+
       const negRow = report.breakdown.find(r => r.category === 'Negative') || { comment_count: 0, percentage: 0 };
       const posRow = report.breakdown.find(r => r.category === 'Positive') || { comment_count: 0, percentage: 0 };
       const neuRow = report.breakdown.find(r => r.category === 'Neutral') || { comment_count: 0, percentage: 0 };
@@ -639,10 +676,82 @@
       }
     }
 
+    function openKeysModal() {
+      document.getElementById('keysModal').classList.remove('hidden');
+      fetch('/api/settings/keys')
+        .then(r => r.json())
+        .then(d => {
+          if (d && d.masked_keys) {
+            document.getElementById('modalYtKey').placeholder = d.masked_keys.youtube_api_key || 'AIzaSy...';
+            document.getElementById('modalApifyToken').placeholder = d.masked_keys.apify_api_token || 'apify_api_...';
+            document.getElementById('modalGeminiKey').placeholder = d.masked_keys.gemini_api_key || 'AQ.Ab8...';
+            document.getElementById('modalIgToken').placeholder = d.masked_keys.instagram_access_token || 'EAGjR...';
+          }
+        })
+        .catch(() => {});
+    }
+
+    function closeKeysModal() {
+      document.getElementById('keysModal').classList.add('hidden');
+    }
+
+    async function saveKeys() {
+      const payload = {
+        youtube_api_key: document.getElementById('modalYtKey').value.trim() || undefined,
+        apify_api_token: document.getElementById('modalApifyToken').value.trim() || undefined,
+        gemini_api_key: document.getElementById('modalGeminiKey').value.trim() || undefined,
+        instagram_access_token: document.getElementById('modalIgToken').value.trim() || undefined,
+      };
+      try {
+        await fetch('/api/settings/keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch (e) {
+        console.error(e);
+      }
+      closeKeysModal();
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       runAnalysis();
     });
   </script>
+
+  <!-- API Keys Modal -->
+  <div id="keysModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-sm font-bold text-white flex items-center space-x-2">
+          <span>🔑 API Keys & Scraper Credentials</span>
+        </h3>
+        <button onclick="closeKeysModal()" class="text-slate-400 hover:text-white p-1 text-sm">✕</button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">YouTube Data API v3 Key (Optional)</label>
+          <input type="password" id="modalYtKey" placeholder="AIzaSy..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono">
+        </div>
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Apify Cloud Scraper Token (Instagram & E-Comm)</label>
+          <input type="password" id="modalApifyToken" placeholder="apify_api_..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono">
+        </div>
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Google Gemini API Key (Optional)</label>
+          <input type="password" id="modalGeminiKey" placeholder="AQ.Ab8..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono">
+        </div>
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Instagram Graph API Token (Optional)</label>
+          <input type="password" id="modalIgToken" placeholder="EAGjR..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono">
+        </div>
+      </div>
+      <div class="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
+        <button onclick="closeKeysModal()" class="px-4 py-2 text-xs text-slate-400 hover:text-white">Cancel</button>
+        <button onclick="saveKeys()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">Save Credentials</button>
+      </div>
+    </div>
+  </div>
 </body>
 
 </html>

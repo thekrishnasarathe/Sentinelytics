@@ -8,17 +8,24 @@ import os
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .schemas import AnalyzeRequest, CachedReport
+from .schemas import AnalyzeRequest, CachedReport, SettingsKeysResponse, SettingsKeysUpdate
 from .extractor import (
     YouTubeExtractor,
     InstagramExtractor,
     AmazonExtractor,
     FlipkartExtractor,
+    parse_input_url_or_id,
     parse_url_and_detect_platform,
     DEMO_POST_IDS,
 )
@@ -78,10 +85,12 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
     pages_fetched = 1
     unbounded = request.unbounded_fetch
     data_source = "Live Web Scrape"
+    data_source_badge = "LIVE: Direct Scraper"
 
     if request.comments and len(request.comments) > 0:
         raw_comments = request.comments
         data_source = "User Provided Comments Payload"
+        data_source_badge = "USER: Custom Payload"
     elif platform == "youtube":
         extractor = YouTubeExtractor(api_key=request.youtube_api_key)
         post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
@@ -91,8 +100,12 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         unbounded = post_data.unbounded_fetch
         is_demo = post_data.is_demo
         data_source = post_data.data_source
+        data_source_badge = post_data.data_source_badge
     elif platform == "instagram":
-        extractor = InstagramExtractor(access_token=request.instagram_access_token)
+        extractor = InstagramExtractor(
+            access_token=request.instagram_access_token,
+            apify_token=request.apify_api_token,
+        )
         post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
         raw_comments = post_data.comments
         post_url = post_data.post_url
@@ -100,8 +113,12 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         unbounded = post_data.unbounded_fetch
         is_demo = post_data.is_demo
         data_source = post_data.data_source
+        data_source_badge = post_data.data_source_badge
     elif platform == "amazon":
-        extractor = AmazonExtractor(api_key=request.scraper_api_key)
+        extractor = AmazonExtractor(
+            api_key=request.scraper_api_key,
+            apify_token=request.apify_api_token,
+        )
         post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
         raw_comments = post_data.comments
         post_url = post_data.post_url
@@ -109,8 +126,12 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         unbounded = post_data.unbounded_fetch
         is_demo = post_data.is_demo
         data_source = post_data.data_source
+        data_source_badge = post_data.data_source_badge
     elif platform == "flipkart":
-        extractor = FlipkartExtractor(api_key=request.scraper_api_key)
+        extractor = FlipkartExtractor(
+            api_key=request.scraper_api_key,
+            apify_token=request.apify_api_token,
+        )
         post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
         raw_comments = post_data.comments
         post_url = post_data.post_url
@@ -118,6 +139,7 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         unbounded = post_data.unbounded_fetch
         is_demo = post_data.is_demo
         data_source = post_data.data_source
+        data_source_badge = post_data.data_source_badge
     else:
         raise ValueError(f"Unsupported platform: {platform}")
 
@@ -181,12 +203,106 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         star_rating_breakdown=star_breakdown,
         is_demo=is_demo,
         data_source=data_source,
+        data_source_badge=data_source_badge,
     )
 
     # Step D: Atomic Write to Cache
     cache_mgr.save_report(report)
 
     return report
+
+
+def _mask_key(val: Optional[str]) -> str:
+    if not val:
+        return ""
+    val_clean = val.strip()
+    if len(val_clean) <= 8:
+        return "****"
+    return f"{val_clean[:4]}...{val_clean[-4:]}"
+
+
+@app.get("/api/settings/keys", response_model=SettingsKeysResponse)
+async def get_settings_keys():
+    """Returns the configuration status and masked values of all runtime API keys."""
+    yt_key = os.environ.get("YOUTUBE_API_KEY", "")
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    apify_token = os.environ.get("APIFY_API_TOKEN", "")
+    ig_token = os.environ.get("INSTAGRAM_ACCESS_TOKEN", "")
+    scraper_key = os.environ.get("SCRAPER_API_KEY", "")
+
+    return SettingsKeysResponse(
+        youtube_api_key_configured=bool(yt_key),
+        gemini_api_key_configured=bool(gemini_key),
+        apify_api_token_configured=bool(apify_token),
+        instagram_access_token_configured=bool(ig_token),
+        scraper_api_key_configured=bool(scraper_key),
+        masked_keys={
+            "youtube_api_key": _mask_key(yt_key),
+            "gemini_api_key": _mask_key(gemini_key),
+            "apify_api_token": _mask_key(apify_token),
+            "instagram_access_token": _mask_key(ig_token),
+            "scraper_api_key": _mask_key(scraper_key),
+        }
+    )
+
+
+@app.post("/api/settings/keys")
+async def update_settings_keys(payload: SettingsKeysUpdate):
+    """
+    Saves and persists API keys at runtime to os.environ and .env file
+    without requiring a server restart.
+    """
+    key_mapping = {
+        "YOUTUBE_API_KEY": payload.youtube_api_key,
+        "GEMINI_API_KEY": payload.gemini_api_key,
+        "APIFY_API_TOKEN": payload.apify_api_token,
+        "INSTAGRAM_ACCESS_TOKEN": payload.instagram_access_token,
+        "SCRAPER_API_KEY": payload.scraper_api_key,
+    }
+
+    env_paths = [
+        Path(".env"),
+        BASE_DIR / ".env",
+        BASE_DIR.parent / ".env",
+    ]
+
+    updated_count = 0
+    for env_var, new_val in key_mapping.items():
+        if new_val is not None and new_val.strip():
+            clean_v = new_val.strip()
+            os.environ[env_var] = clean_v
+            updated_count += 1
+
+            for ep in env_paths:
+                lines = []
+                found = False
+                if ep.exists():
+                    try:
+                        with open(ep, "r", encoding="utf-8") as f:
+                            lines = f.readlines()
+                    except Exception:
+                        lines = []
+
+                new_lines = []
+                for line in lines:
+                    if line.strip().startswith(f"{env_var}="):
+                        new_lines.append(f"{env_var}={clean_v}\n")
+                        found = True
+                    else:
+                        new_lines.append(line)
+                if not found:
+                    new_lines.append(f"{env_var}={clean_v}\n")
+
+                try:
+                    with open(ep, "w", encoding="utf-8") as f:
+                        f.writelines(new_lines)
+                except Exception:
+                    pass
+
+    return {
+        "status": "success",
+        "message": f"Updated {updated_count} API keys at runtime and persisted to .env",
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -412,3 +412,176 @@ def test_ecommerce_full_pipeline_and_star_ratings():
 
     assert csv_p.exists() and csv_t < 1.0
     assert pdf_p.exists() and pdf_t < 1.0
+
+
+def test_smart_url_parser_and_platform_autodetector():
+    """
+    Verify parse_input_url_or_id correctly parses:
+    - YouTube: watch?v=, youtu.be/, shorts/
+    - Instagram: /reel/, /p/, /tv/
+    - Flipkart: /p/ auto-converted to /product-reviews/ with pid preserved
+    - Amazon: /dp/ASIN extracted to 10-char uppercase ASIN
+    - Demo presets: preserved without modification
+    """
+    from app.extractor import parse_input_url_or_id
+
+    # 1. YouTube variants
+    vid1, plat1, url1 = parse_input_url_or_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert vid1 == "dQw4w9WgXcQ" and plat1 == "youtube" and "youtube.com/watch?v=dQw4w9WgXcQ" in url1
+
+    vid2, plat2, url2 = parse_input_url_or_id("https://youtu.be/jNQXAC9IVRw")
+    assert vid2 == "jNQXAC9IVRw" and plat2 == "youtube"
+
+    vid3, plat3, url3 = parse_input_url_or_id("https://www.youtube.com/shorts/abc12345678")
+    assert vid3 == "abc12345678" and plat3 == "youtube"
+
+    # 2. Instagram variants
+    ig1, plat_ig1, url_ig1 = parse_input_url_or_id("https://www.instagram.com/reel/C8xyz123abc/")
+    assert ig1 == "C8xyz123abc" and plat_ig1 == "instagram" and "instagram.com/p/C8xyz123abc" in url_ig1
+
+    ig2, plat_ig2, url_ig2 = parse_input_url_or_id("https://www.instagram.com/p/C-foo_bar/")
+    assert ig2 == "C-foo_bar" and plat_ig2 == "instagram"
+
+    # 3. Flipkart: auto-converts /p/ to /product-reviews/ and preserves pid
+    flp_id, plat_flp, url_flp = parse_input_url_or_id(
+        "https://www.flipkart.com/realme-12-pro-5g/p/itme12345?pid=MOBGH73XHZ6QG9FZ&marketplace=FLIPKART"
+    )
+    assert flp_id == "MOBGH73XHZ6QG9FZ"
+    assert plat_flp == "flipkart"
+    assert "/product-reviews/" in url_flp
+    assert "pid=MOBGH73XHZ6QG9FZ" in url_flp
+
+    # 4. Amazon: extracts ASIN and constructs canonical URL
+    amz_asin, plat_amz, url_amz = parse_input_url_or_id(
+        "https://www.amazon.in/Apple-iPhone-15-128-GB/dp/B0CHX1W1XY/ref=sr_1_1"
+    )
+    assert amz_asin == "B0CHX1W1XY"
+    assert plat_amz == "amazon"
+    assert "product-reviews/B0CHX1W1XY" in url_amz
+
+    # 5. Presets
+    demo_id, demo_plat, _ = parse_input_url_or_id("yt_demo_72neg")
+    assert demo_id == "yt_demo_72neg" and demo_plat == "youtube"
+
+
+def test_instagram_extractor_waterfall_routing(monkeypatch):
+    """
+    Verify InstagramExtractor 3-tier waterfall:
+    - Tier 1: Graph API
+    - Tier 2: Apify
+    - Tier 3: Instaloader
+    - Demo preset: returns DEMO PRESET badge
+    """
+    # Demo preset
+    ig = InstagramExtractor()
+    demo_res = ig.extract("ig_demo_creator_reel", is_demo=True)
+    assert demo_res.is_demo is True
+    assert demo_res.data_source_badge == "DEMO PRESET: Offline Sample Dataset"
+
+    # Tier 2 Apify routing
+    called_apify = False
+
+    def mock_fetch_apify(self, post_url, max_comments=None):
+        nonlocal called_apify
+        called_apify = True
+        return [
+            CommentInput(
+                comment_id="apify_mock_1",
+                raw_text="Awesome reel and great edit!",
+                timestamp="2026-11-03T00:00:00Z",
+                like_count=42,
+                anonymized_author_id="mock_author_1234",
+            )
+        ]
+
+    monkeypatch.setattr(InstagramExtractor, "_fetch_apify", mock_fetch_apify)
+
+    ig_apify = InstagramExtractor(apify_token="apify_test_token_123")
+    res_apify = ig_apify.extract("https://www.instagram.com/reel/C8xyz123abc/")
+    assert called_apify is True
+    assert res_apify.data_source_badge == "LIVE: Instagram Apify Scraper"
+    assert len(res_apify.comments) == 1
+
+
+def test_flipkart_html_review_parser_and_verified_buyer():
+    """
+    Verify FlipkartExtractor DOM parsing:
+    - Extracts star ratings (1★–5★)
+    - Concatenates review title and review body
+    - Identifies Certified Buyer badge
+    """
+    sample_flipkart_html = """
+    <div class="RcXBOT">
+      <div class="col EPCmJX">
+        <div class="row">
+          <div class="XQDdHH">4 <img src="star.svg"></div>
+          <p class="z9E0IG">Terrific purchase</p>
+        </div>
+        <div class="row">
+          <div class="ZmyHeo"><div><div>The camera quality is superb in daylight, fast charging is really good.</div></div></div>
+        </div>
+        <div class="row">
+          <p class="_2NsDsF">Ankit Verma</p>
+          <p class="MztJPv"><span>Certified Buyer</span></p>
+        </div>
+      </div>
+    </div>
+    """
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(sample_flipkart_html, "html.parser")
+    card = soup.select_one("div.col.EPCmJX, div.RcXBOT")
+    assert card is not None
+
+    rating_elem = card.select_one("div.XQDdHH, div._3LWZlK")
+    rating = int(float(rating_elem.get_text(strip=True).split()[0]))
+    assert rating == 4
+
+    title_elem = card.select_one("p.z9E0IG, p._2-N8zT")
+    title = title_elem.get_text(strip=True)
+    body_elem = card.select_one("div.ZmyHeo")
+    body = body_elem.get_text(separator=" ", strip=True)
+    full_text = f"{title}. {body}"
+    assert "Terrific purchase" in full_text
+    assert "The camera quality is superb" in full_text
+
+    cert_elem = card.select_one("p.MztJPv")
+    assert cert_elem is not None
+    assert "Certified Buyer" in cert_elem.get_text()
+
+
+@pytest.mark.anyio
+async def test_runtime_api_keys_settings_endpoint():
+    """
+    Verify GET /api/settings/keys and POST /api/settings/keys:
+    - Successfully updates environment variables at runtime
+    - Returns masked keys for frontend dashboard security
+    """
+    from app.main import get_settings_keys, update_settings_keys
+    from app.schemas import SettingsKeysUpdate
+
+    original_key = os.environ.get("YOUTUBE_API_KEY", "")
+
+    # 1. Update keys via endpoint
+    update_payload = SettingsKeysUpdate(
+        youtube_api_key="AIzaSy_TEST_RUNTIME_KEY_XYZ999",
+        apify_api_token="apify_test_token_abc123",
+    )
+    update_res = await update_settings_keys(update_payload)
+    assert update_res["status"] == "success"
+    assert os.environ["YOUTUBE_API_KEY"] == "AIzaSy_TEST_RUNTIME_KEY_XYZ999"
+    assert os.environ["APIFY_API_TOKEN"] == "apify_test_token_abc123"
+
+    # 2. Get masked keys
+    settings_res = await get_settings_keys()
+    assert settings_res.youtube_api_key_configured is True
+    assert settings_res.apify_api_token_configured is True
+    assert "..." in settings_res.masked_keys["youtube_api_key"]
+    assert settings_res.masked_keys["youtube_api_key"].startswith("AIza")
+
+    # Restore original key
+    if original_key:
+        os.environ["YOUTUBE_API_KEY"] = original_key
+    await update_settings_keys(SettingsKeysUpdate(
+        youtube_api_key=original_key,
+        apify_api_token=os.environ.get("APIFY_API_TOKEN", "apify_test_token_abc123"),
+    ))

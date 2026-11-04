@@ -116,7 +116,20 @@ npm install
 
 ## 🏃 Running the Application
 
-### Option A: Launch Both Servers (Full-Stack Dev Workflow)
+### Option A: One-Command Auto-Launcher (Recommended)
+Start both FastAPI backend (:8000) and Vite React dashboard (:3000) together with automatic healthcheck and browser launch:
+```bash
+python start.py
+```
+*Flags supported:*
+- `python start.py --no-browser` (do not auto-launch default browser)
+- `python start.py --backend-only` (run FastAPI backend only on :8000)
+- `python start.py --frontend-only` (run Vite React frontend only on :3000)
+- Press `Ctrl+C` at any time to cleanly stop both servers.
+
+---
+
+### Option B: Manual Multi-Terminal Launch (Dev Workflow)
 
 1. **Terminal 1 — Start the FastAPI Backend Server (Port 8000):**
    ```bash
@@ -134,7 +147,7 @@ npm install
 
 ---
 
-### Option B: Terminal Batch Runner & Benchmark
+### Option C: Terminal Batch Runner & Benchmark
 Run the automated batch runner across YouTube, Instagram, Amazon, and Flipkart:
 ```bash
 python sentiment_module/cli_batch_runner.py
