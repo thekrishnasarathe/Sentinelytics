@@ -965,7 +965,7 @@ class YouTubeExtractor:
                 base_url = "https://www.googleapis.com/youtube/v3/commentThreads"
                 next_page_token: Optional[str] = None
                 pages_traversed = 0
-                fetch_cap = max_comments if max_comments is not None else 500
+                fetch_cap = max_comments if max_comments is not None else 5000
 
                 with httpx.Client(timeout=20.0) as client:
                     while True:
@@ -1043,7 +1043,7 @@ class YouTubeExtractor:
             gen = downloader.get_comments(clean_id)
 
             extracted_live: List[CommentInput] = []
-            live_limit = max_comments if max_comments is not None else 300
+            live_limit = max_comments if max_comments is not None else 5000
 
             for item in itertools.islice(gen, live_limit):
                 cid = item.get("cid") or get_author_hash(item.get("author", "anon") + str(time.time()))
@@ -1177,7 +1177,7 @@ class AmazonExtractor:
         try:
             with httpx.Client(timeout=15.0, follow_redirects=True) as client:
                 page = 1
-                max_pages = 3 if max_comments else 5
+                max_pages = max(1, (max_comments + 9) // 10) if max_comments else 25
                 while page <= max_pages:
                     target_url = f"https://www.{domain}/product-reviews/{clean_id}?pageNumber={page}"
                     resp = client.get(target_url, headers=headers)
@@ -1254,7 +1254,7 @@ class AmazonExtractor:
                 client = ApifyClient(self.apify_token)
                 run_input = {
                     "productUrls": [{"url": canonical_url}],
-                    "maxReviews": max_comments or 50,
+                    "maxReviews": max_comments if max_comments is not None else 500,
                 }
                 run = client.actor("junglee/amazon-reviews-scraper").call(run_input=run_input)
                 dataset_id = getattr(run, "default_dataset_id", None) or (run.get("defaultDatasetId") if isinstance(run, dict) else None)
@@ -1372,7 +1372,7 @@ class AmazonExtractor:
             product_name=product_title,
             item_id=clean_id,
             platform="amazon",
-            count=120 if max_comments is None else max_comments,
+            count=250 if max_comments is None else max_comments,
         )
 
         return PostInput(
@@ -1460,7 +1460,7 @@ class FlipkartExtractor:
             review_base_url = review_base_url.replace("/p/", "/product-reviews/")
 
         page = 1
-        max_pages = 5 if max_comments else 10
+        max_pages = max(1, (max_comments + 9) // 10) if max_comments else 25
 
         try:
             with httpx.Client(timeout=15.0, follow_redirects=True) as client:
@@ -1541,7 +1541,7 @@ class FlipkartExtractor:
                 client = ApifyClient(self.apify_token)
                 run_input = {
                     "startUrls": [{"url": canonical_url}],
-                    "maxReviews": max_comments or 50,
+                    "maxReviews": max_comments if max_comments is not None else 500,
                 }
                 run = client.actor("codingfrontend/flipkart-reviews-scraper").call(run_input=run_input)
                 dataset_id = getattr(run, "default_dataset_id", None) or (run.get("defaultDatasetId") if isinstance(run, dict) else None)
@@ -1597,7 +1597,7 @@ class FlipkartExtractor:
             product_name=product_title,
             item_id=clean_id,
             platform="flipkart",
-            count=120 if max_comments is None else max_comments,
+            count=250 if max_comments is None else max_comments,
         )
 
         return PostInput(
@@ -1721,7 +1721,7 @@ class InstagramExtractor:
         # Tier 4: Live Reel/Post Adaptive Synthesis Engine (Ensures 100% demo reliability under login wall)
         generated_comments = build_live_instagram_comments(
             shortcode=clean_id,
-            count=100 if max_comments is None else max_comments,
+            count=250 if max_comments is None else max_comments,
         )
 
         return PostInput(
@@ -1779,7 +1779,7 @@ class InstagramExtractor:
         client = ApifyClient(self.apify_token)
         run_input = {
             "directUrls": [post_url],
-            "resultsLimit": max_comments or 300,
+            "resultsLimit": max_comments if max_comments is not None else 1000,
         }
         run = client.actor("apify/instagram-comment-scraper").call(run_input=run_input)
         dataset_id = getattr(run, "default_dataset_id", None) or (run.get("defaultDatasetId") if isinstance(run, dict) else None)
@@ -1814,7 +1814,7 @@ class InstagramExtractor:
             L.login(os.environ["IG_LOGIN_USER"], os.environ["IG_LOGIN_PASS"])
         post = instaloader.Post.from_shortcode(L.context, shortcode)
         extracted = []
-        limit = max_comments if max_comments is not None else 100
+        limit = max_comments if max_comments is not None else 1000
         for comment in itertools.islice(post.get_comments(), limit):
             cid = str(comment.id)
             text = comment.text

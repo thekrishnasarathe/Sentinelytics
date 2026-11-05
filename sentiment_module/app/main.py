@@ -180,8 +180,8 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         platform=platform,
     )
 
-    # Provide large scrollable preview (up to 250 comments) for interactive feed
-    sample_preview = processed_comments[:250]
+    # Provide complete list of processed comments for interactive feed (up to 2,500)
+    sample_preview = processed_comments if len(processed_comments) <= 2500 else processed_comments[:2500]
 
     # Build CachedReport
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
