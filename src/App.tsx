@@ -84,6 +84,10 @@ export interface CachedReport {
   star_rating_breakdown?: Record<string, number> | null;
   star_rating_distribution?: Record<string, { Positive: number; Neutral: number; Negative: number; total: number }> | null;
   keyword_frequencies?: Array<{ keyword: string; count: number; sentiment: 'Positive' | 'Negative'; percentage?: number }> | null;
+  keyword_stats?: Array<{ keyword: string; count: number; sentiment: 'Positive' | 'Negative'; percentage: number }> | null;
+  timeline_buckets?: Array<{ label: string; positive: number; neutral: number; negative: number; total: number }> | null;
+  platform_reported_total?: number | null;
+  warning_message?: string | null;
   is_demo?: boolean;
   data_source?: string;
   data_source_badge?: string;
@@ -376,7 +380,20 @@ export default function App() {
 
   // Dynamic time-series grouping for Chart 3 (Stacked emerald/sky/rose volumes)
   const timeSeriesData = useMemo(() => {
-    if (!report || !report.sample_comments || report.sample_comments.length === 0) return [];
+    if (!report) return [];
+
+    // Prioritize 10-12 pre-computed backend chronological wave buckets
+    if (report.timeline_buckets && report.timeline_buckets.length > 0) {
+      return report.timeline_buckets.map((b) => ({
+        label: b.label,
+        Negative: b.negative,
+        Positive: b.positive,
+        Neutral: b.neutral,
+        total: b.total,
+      }));
+    }
+
+    if (!report.sample_comments || report.sample_comments.length === 0) return [];
 
     const parsedComments = report.sample_comments
       .map((c) => {
@@ -542,6 +559,20 @@ export default function App() {
     }
     return list;
   }, [report, feedFilter, selectedRootCauseFilter, searchQuery]);
+
+  // Client-side pagination state for Comment Explorer (50 items/page, zero DOM freezing)
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 50;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [feedFilter, selectedRootCauseFilter, searchQuery, report]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredComments.length / itemsPerPage));
+  const paginatedComments = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredComments.slice(start, start + itemsPerPage);
+  }, [filteredComments, currentPage]);
 
   const negRow = report?.breakdown?.find(r => r.category === 'Negative') || { comment_count: 0, percentage: 0 };
   const posRow = report?.breakdown?.find(r => r.category === 'Positive') || { comment_count: 0, percentage: 0 };
@@ -778,6 +809,32 @@ export default function App() {
           </div>
         )}
 
+        {/* Anti-Bot Protection Notice (Automatic Benchmark Fallback) */}
+        {report?.warning_message && (
+          <div className="bg-amber-950/80 border-2 border-amber-500 rounded-2xl p-4 shadow-xl shadow-amber-950/40 animate-in fade-in duration-200">
+            <div className="flex items-start space-x-3">
+              <div className="p-2 bg-amber-900/90 rounded-xl text-amber-300 shrink-0">
+                <AlertTriangle className="w-5 h-5 text-amber-400" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-bold text-amber-200">Anti-Bot Protection Notice</h4>
+                <p className="text-xs text-amber-200/90 mt-1 leading-relaxed">
+                  {report.warning_message}
+                </p>
+                <div className="mt-2.5 flex items-center space-x-3">
+                  <button
+                    onClick={() => setShowExtensionModal(true)}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                  >
+                    <Puzzle className="w-3.5 h-3.5" />
+                    <span>Open Sentinelytics Browser Extension</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Data Provenance Badge: LIVE SCRAPED DATA vs OFFLINE DEMO PRESET */}
         {report && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
@@ -850,11 +907,21 @@ export default function App() {
         {report && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
             <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
-              <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Raw Ingestion</p>
-              <p className="text-2xl font-extrabold text-white mt-1">{report.total_raw_comments.toLocaleString()}</p>
+              <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">
+                {report.platform_reported_total ? `Platform Total (${report.platform.toUpperCase()})` : 'Raw Ingestion'}
+              </p>
+              <p className="text-2xl font-extrabold text-white mt-1">
+                {(report.platform_reported_total || report.total_raw_comments).toLocaleString()}
+              </p>
               <span className="text-[10px] text-slate-500 mt-1 flex items-center space-x-1">
                 <Zap className="w-3 h-3 text-indigo-400" />
-                <span>{report.unbounded_fetch ? `Uncapped (${report.pages_fetched} pages)` : 'Capped'}</span>
+                <span>
+                  {report.platform_reported_total
+                    ? `Audited: ${report.total_valid_comments.toLocaleString()} items`
+                    : report.unbounded_fetch
+                    ? `Uncapped (${report.pages_fetched} pages)`
+                    : 'Capped'}
+                </span>
               </span>
             </div>
 
@@ -1048,19 +1115,19 @@ export default function App() {
                     <TrendingUp className="w-4 h-4 text-indigo-400" />
                     <span>Chart 3: Sentiment Trend & Ingestion Wave Over Time</span>
                   </h3>
-                  <p className="text-xs text-slate-400">Authentic multi-series volume stacked across normalized comment intervals</p>
+                  <p className="text-xs text-slate-400">Authentic multi-series volume stacked across 10-12 chronological wave buckets</p>
                 </div>
                 <span className="text-xs text-slate-400 font-mono">Time-Series</span>
               </div>
 
-              <div className="h-44 w-full flex items-end pt-4 pb-2 px-2 relative">
+              <div className="h-48 w-full flex items-end pt-6 pb-2 px-2 relative">
                 <div className="absolute inset-x-2 inset-y-4 flex flex-col justify-between pointer-events-none opacity-20">
                   <div className="border-b border-slate-600 w-full"></div>
                   <div className="border-b border-slate-600 w-full"></div>
                   <div className="border-b border-slate-600 w-full"></div>
                 </div>
 
-                <div className="w-full h-full flex items-end justify-between gap-2 z-10">
+                <div className="w-full h-full flex items-end justify-between gap-1.5 sm:gap-2 z-10">
                   {timeSeriesData.length === 0 ? (
                     <div className="w-full h-full flex items-center justify-center text-xs text-slate-500">
                       No timestamp data available for time-series trend.
@@ -1069,42 +1136,51 @@ export default function App() {
                     (() => {
                       const maxVal = Math.max(...timeSeriesData.map(b => b.total), 1);
                       return timeSeriesData.map((b, i) => {
-                        const negPct = (b.Negative / maxVal) * 100;
-                        const neuPct = (b.Neutral / maxVal) * 100;
-                        const posPct = (b.Positive / maxVal) * 100;
+                        const barHeightPct = Math.max(18, Math.round((b.total / maxVal) * 100));
+                        const negPct = b.total > 0 ? (b.Negative / b.total) * 100 : 0;
+                        const neuPct = b.total > 0 ? (b.Neutral / b.total) * 100 : 0;
+                        const posPct = b.total > 0 ? (b.Positive / b.total) * 100 : 0;
+
                         return (
                           <div key={i} className="flex-1 flex flex-col items-center h-full justify-end group relative">
                             {/* Hover Tooltip */}
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-10 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[10px] whitespace-nowrap z-20 pointer-events-none shadow-xl">
-                              <span className="text-rose-400 font-bold">-{b.Negative}</span>{' '}
-                              <span className="text-sky-400 font-bold">~{b.Neutral}</span>{' '}
-                              <span className="text-emerald-400 font-bold">+{b.Positive}</span>
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-14 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[10px] whitespace-nowrap z-30 pointer-events-none shadow-2xl">
+                              <p className="font-bold text-white mb-0.5">{b.label} • {b.total} comments</p>
+                              <div className="flex items-center space-x-2">
+                                <span className="text-rose-400 font-bold">Neg: {b.Negative} ({Math.round(negPct)}%)</span>
+                                <span className="text-sky-400 font-bold">Neu: {b.Neutral} ({Math.round(neuPct)}%)</span>
+                                <span className="text-emerald-400 font-bold">Pos: {b.Positive} ({Math.round(posPct)}%)</span>
+                              </div>
                             </div>
 
-                            <div className="w-full flex flex-col items-center justify-end h-32 space-y-0.5">
-                              {b.Negative > 0 && (
-                                <div
-                                  style={{ height: `${Math.max(4, negPct)}%` }}
-                                  className="w-full max-w-[28px] bg-rose-500 rounded-t group-hover:bg-rose-400 transition-all"
-                                  title={`Negative: ${b.Negative}`}
-                                ></div>
-                              )}
-                              {b.Neutral > 0 && (
-                                <div
-                                  style={{ height: `${Math.max(4, neuPct)}%` }}
-                                  className="w-full max-w-[28px] bg-sky-500 group-hover:bg-sky-400 transition-all"
-                                  title={`Neutral: ${b.Neutral}`}
-                                ></div>
-                              )}
-                              {b.Positive > 0 && (
-                                <div
-                                  style={{ height: `${Math.max(4, posPct)}%` }}
-                                  className="w-full max-w-[28px] bg-emerald-500 rounded-b group-hover:bg-emerald-400 transition-all"
-                                  title={`Positive: ${b.Positive}`}
-                                ></div>
-                              )}
+                            <div className="w-full flex flex-col items-center justify-end h-36">
+                              <div
+                                style={{ height: `${barHeightPct}%` }}
+                                className="w-full max-w-[28px] sm:max-w-[34px] rounded-t overflow-hidden flex flex-col justify-end bg-slate-800 transition-all duration-300"
+                              >
+                                {b.Negative > 0 && (
+                                  <div
+                                    style={{ height: `${negPct}%` }}
+                                    className="w-full bg-rose-500 group-hover:bg-rose-400 transition-all"
+                                  ></div>
+                                )}
+                                {b.Neutral > 0 && (
+                                  <div
+                                    style={{ height: `${neuPct}%` }}
+                                    className="w-full bg-sky-500 group-hover:bg-sky-400 transition-all"
+                                  ></div>
+                                )}
+                                {b.Positive > 0 && (
+                                  <div
+                                    style={{ height: `${posPct}%` }}
+                                    className="w-full bg-emerald-500 group-hover:bg-emerald-400 transition-all"
+                                  ></div>
+                                )}
+                              </div>
                             </div>
-                            <span className="text-[10px] text-slate-400 mt-2 font-mono truncate max-w-full">{b.label}</span>
+                            <span className="text-[9px] sm:text-[10px] text-slate-400 mt-2 font-mono truncate max-w-full text-center">
+                              {b.label}
+                            </span>
                           </div>
                         );
                       });
@@ -1129,7 +1205,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Chart 4: Star Rating (E-Commerce) OR Keyword Frequency (Social) */}
+            {/* Chart 4: Star Rating & Keywords (E-Commerce) OR Top Keywords (Social) */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
               <div className="flex items-center justify-between mb-4">
                 <div>
@@ -1137,7 +1213,7 @@ export default function App() {
                     {isEcommerce ? (
                       <>
                         <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
-                        <span>Chart 4: E-Commerce Star Rating vs NLP Sentiment</span>
+                        <span>Chart 4: E-Commerce Star Ratings & Issue Keywords</span>
                       </>
                     ) : (
                       <>
@@ -1148,110 +1224,138 @@ export default function App() {
                   </h3>
                   <p className="text-xs text-slate-400">
                     {isEcommerce
-                      ? 'Distribution across 1★ to 5★ reviews with positive, neutral, and negative sentiment'
-                      : 'Extracted complaint vs praise keyphrases with exact comment counts'}
+                      ? 'Star rating sentiment distribution + top extracted product complaint & praise keywords'
+                      : 'Top extracted praise and complaint keywords with exact comment counts'}
                   </p>
                 </div>
                 <span className="text-xs font-mono text-slate-400">{report.platform.toUpperCase()}</span>
               </div>
 
               {isEcommerce ? (
-                <div className="space-y-2.5 py-1">
-                  {[5, 4, 3, 2, 1].map((starsNum) => {
-                    const starDist = report.star_rating_distribution?.[String(starsNum)];
-                    const legacyCount = report.star_rating_breakdown?.[`${starsNum}_star`] || 0;
-                    const totalStarCount = starDist ? starDist.total : legacyCount;
-                    const totalComments = report.total_valid_comments || 1;
-                    const pct = Math.round((totalStarCount / totalComments) * 100);
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-1">
+                  {/* Left: Star Rating Distribution 5★ to 1★ */}
+                  <div className="space-y-2">
+                    <span className="text-xs font-semibold text-slate-300 block mb-1">Star Ratings vs NLP Polarity:</span>
+                    {[5, 4, 3, 2, 1].map((starsNum) => {
+                      const starDist = report.star_rating_distribution?.[String(starsNum)];
+                      const legacyCount = report.star_rating_breakdown?.[`${starsNum}_star`] || 0;
+                      const totalStarCount = starDist ? starDist.total : legacyCount;
+                      const totalComments = report.total_valid_comments || 1;
+                      const pct = Math.round((totalStarCount / totalComments) * 100);
 
-                    const posCount = starDist ? starDist.Positive : (starsNum >= 4 ? totalStarCount : 0);
-                    const neuCount = starDist ? starDist.Neutral : (starsNum === 3 ? totalStarCount : 0);
-                    const negCount = starDist ? starDist.Negative : (starsNum <= 2 ? totalStarCount : 0);
+                      const posCount = starDist ? starDist.Positive : (starsNum >= 4 ? totalStarCount : 0);
+                      const neuCount = starDist ? starDist.Neutral : (starsNum === 3 ? totalStarCount : 0);
+                      const negCount = starDist ? starDist.Negative : (starsNum <= 2 ? totalStarCount : 0);
 
-                    return (
-                      <div key={starsNum} className="flex items-center space-x-3 text-xs">
-                        <div className="w-14 flex items-center font-bold text-slate-300 space-x-1">
-                          <span>{starsNum}</span>
-                          <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                      return (
+                        <div key={starsNum} className="flex items-center space-x-2 text-xs">
+                          <div className="w-10 flex items-center font-bold text-slate-300 space-x-0.5">
+                            <span>{starsNum}</span>
+                            <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                          </div>
+                          <div className="flex-1 bg-slate-800 rounded-full h-2.5 overflow-hidden flex">
+                            {totalStarCount > 0 ? (
+                              <>
+                                <div
+                                  style={{ width: `${(posCount / totalStarCount) * 100}%` }}
+                                  className="bg-emerald-500 h-2.5"
+                                  title={`Positive: ${posCount}`}
+                                ></div>
+                                <div
+                                  style={{ width: `${(neuCount / totalStarCount) * 100}%` }}
+                                  className="bg-sky-400 h-2.5"
+                                  title={`Neutral: ${neuCount}`}
+                                ></div>
+                                <div
+                                  style={{ width: `${(negCount / totalStarCount) * 100}%` }}
+                                  className="bg-rose-500 h-2.5"
+                                  title={`Negative: ${negCount}`}
+                                ></div>
+                              </>
+                            ) : (
+                              <div className="w-0"></div>
+                            )}
+                          </div>
+                          <span className="w-16 text-right font-mono text-[11px] text-slate-400">
+                            {totalStarCount} ({pct}%)
+                          </span>
                         </div>
-                        <div className="flex-1 bg-slate-800 rounded-full h-3 overflow-hidden flex">
-                          {totalStarCount > 0 ? (
-                            <>
-                              <div
-                                style={{ width: `${(posCount / totalStarCount) * 100}%` }}
-                                className="bg-emerald-500 h-3"
-                                title={`Positive: ${posCount}`}
-                              ></div>
-                              <div
-                                style={{ width: `${(neuCount / totalStarCount) * 100}%` }}
-                                className="bg-sky-400 h-3"
-                                title={`Neutral: ${neuCount}`}
-                              ></div>
-                              <div
-                                style={{ width: `${(negCount / totalStarCount) * 100}%` }}
-                                className="bg-rose-500 h-3"
-                                title={`Negative: ${negCount}`}
-                              ></div>
-                            </>
-                          ) : (
-                            <div className="w-0"></div>
-                          )}
-                        </div>
-                        <span className="w-24 text-right font-mono text-slate-400 font-semibold">
-                          {totalStarCount} ({pct}%)
-                        </span>
-                      </div>
-                    );
-                  })}
-                  <div className="flex items-center justify-end space-x-4 pt-2 text-[10px] text-slate-400">
-                    <span className="flex items-center space-x-1 text-emerald-400"><span className="w-2 h-2 bg-emerald-500 rounded-full"></span><span>Positive</span></span>
-                    <span className="flex items-center space-x-1 text-sky-400"><span className="w-2 h-2 bg-sky-400 rounded-full"></span><span>Neutral</span></span>
-                    <span className="flex items-center space-x-1 text-rose-400"><span className="w-2 h-2 bg-rose-500 rounded-full"></span><span>Negative</span></span>
+                      );
+                    })}
+                    <div className="flex items-center justify-end space-x-3 pt-1 text-[10px] text-slate-400">
+                      <span className="flex items-center space-x-1 text-emerald-400"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span><span>Pos</span></span>
+                      <span className="flex items-center space-x-1 text-sky-400"><span className="w-1.5 h-1.5 bg-sky-400 rounded-full"></span><span>Neu</span></span>
+                      <span className="flex items-center space-x-1 text-rose-400"><span className="w-1.5 h-1.5 bg-rose-500 rounded-full"></span><span>Neg</span></span>
+                    </div>
+                  </div>
+
+                  {/* Right: Top Issue & Praise Keywords */}
+                  <div className="space-y-1.5">
+                    <span className="text-xs font-semibold text-slate-300 block mb-1">Top Extracted Keywords (Click to filter):</span>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {((report.keyword_stats && report.keyword_stats.length > 0 ? report.keyword_stats : report.keyword_frequencies) || []).slice(0, 6).map((kw, idx) => {
+                        const isNeg = kw.sentiment === 'Negative';
+                        const maxKwCount = Math.max(...((report.keyword_stats || report.keyword_frequencies || []).map(k => k.count)), 1);
+                        const kwWidth = Math.max(15, Math.round((kw.count / maxKwCount) * 100));
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => setSearchQuery(kw.keyword)}
+                            className={`w-full p-1.5 rounded-lg border text-left flex items-center justify-between transition cursor-pointer text-xs ${
+                              isNeg
+                                ? 'bg-rose-950/30 border-rose-800/60 hover:bg-rose-900/40 text-rose-300'
+                                : 'bg-emerald-950/30 border-emerald-800/60 hover:bg-emerald-900/40 text-emerald-300'
+                            }`}
+                          >
+                            <div className="flex-1 mr-2 truncate">
+                              <span className="font-bold text-[11px] block truncate">{kw.keyword}</span>
+                              <div className="w-full bg-slate-800 rounded-full h-1 mt-1 overflow-hidden">
+                                <div style={{ width: `${kwWidth}%` }} className={`h-1 rounded-full ${isNeg ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
+                              </div>
+                            </div>
+                            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-900 font-bold shrink-0">
+                              {kw.count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3.5 py-1 text-xs">
-                  {report.keyword_frequencies && report.keyword_frequencies.length > 0 ? (
-                    <div>
-                      <span className="font-semibold text-slate-300 mb-2 block">Top High-Signal Keywords (Click to filter):</span>
-                      <div className="grid grid-cols-2 gap-2">
-                        {report.keyword_frequencies.slice(0, 10).map((kw, idx) => {
-                          const isNeg = kw.sentiment === 'Negative';
-                          return (
-                            <button
-                              key={idx}
-                              onClick={() => setSearchQuery(kw.keyword)}
-                              className={`p-2 rounded-xl border text-left flex items-center justify-between transition cursor-pointer ${
-                                isNeg
-                                  ? 'bg-rose-950/40 border-rose-800/80 hover:bg-rose-900/40 text-rose-300'
-                                  : 'bg-emerald-950/40 border-emerald-800/80 hover:bg-emerald-900/40 text-emerald-300'
-                              }`}
-                            >
+                <div className="space-y-2 py-1 text-xs">
+                  <span className="font-semibold text-slate-300 mb-1 block">Top 8 High-Signal Keywords (Click to filter):</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {((report.keyword_stats && report.keyword_stats.length > 0 ? report.keyword_stats : report.keyword_frequencies) || []).slice(0, 8).map((kw, idx) => {
+                      const isNeg = kw.sentiment === 'Negative';
+                      const maxKwCount = Math.max(...((report.keyword_stats || report.keyword_frequencies || []).map(k => k.count)), 1);
+                      const kwWidth = Math.max(15, Math.round((kw.count / maxKwCount) * 100));
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => setSearchQuery(kw.keyword)}
+                          className={`p-2.5 rounded-xl border text-left flex items-center justify-between transition cursor-pointer ${
+                            isNeg
+                              ? 'bg-rose-950/40 border-rose-800/80 hover:bg-rose-900/40 text-rose-300'
+                              : 'bg-emerald-950/40 border-emerald-800/80 hover:bg-emerald-900/40 text-emerald-300'
+                          }`}
+                        >
+                          <div className="flex-1 mr-2 truncate">
+                            <div className="flex items-center space-x-1.5">
+                              <span className={`w-2 h-2 rounded-full ${isNeg ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
                               <span className="font-bold truncate text-[11px]">{kw.keyword}</span>
-                              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-900/80 ml-1 font-bold">
-                                {kw.count}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      <span className="font-semibold text-rose-400 mb-1.5 block">Top Recurring Negative Complaint Clusters:</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {((report.breakdown || []).find(r => r.category === 'Negative')?.top_keywords || []).map((kw, i) => (
-                          <span
-                            key={i}
-                            onClick={() => setSearchQuery(kw)}
-                            className="px-2.5 py-1 rounded-lg bg-rose-950/60 text-rose-300 border border-rose-800 text-[11px] font-semibold cursor-pointer hover:bg-rose-900"
-                          >
-                            {kw}
+                            </div>
+                            <div className="w-full bg-slate-800 rounded-full h-1 mt-1.5 overflow-hidden">
+                              <div style={{ width: `${kwWidth}%` }} className={`h-1 rounded-full ${isNeg ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
+                            </div>
+                          </div>
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-900/80 ml-1 font-bold shrink-0">
+                            {kw.count}
                           </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -1297,14 +1401,14 @@ export default function App() {
           </div>
         )}
 
-        {/* Audited Comment & Review Explorer (Fixed Strict Filters & 100+ items) */}
+        {/* Audited Comment & Review Explorer (50 items/page with zero DOM lag) */}
         {report && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
               <div>
                 <h3 className="text-sm font-bold text-white">Audited Comment & Review Explorer</h3>
                 <p className="text-xs text-slate-400">
-                  Showing <span className="text-white font-bold">{filteredComments.length}</span> of {(report.sample_comments || []).length} audited items
+                  Showing <span className="text-white font-bold">{filteredComments.length.toLocaleString()}</span> matching of {(report.sample_comments || []).length.toLocaleString()} audited items
                 </p>
               </div>
 
@@ -1358,14 +1462,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* Scrollable Comments List (Supports 100+ items smoothly) */}
+            {/* Scrollable Comments List (Paginated at 50/page for smooth rendering) */}
             <div className="space-y-3 max-h-[32rem] overflow-y-auto pr-2">
               {filteredComments.length === 0 ? (
                 <div className="text-center py-12 text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
                   No comments matching the selected filter ({feedFilter}) or search query.
                 </div>
               ) : (
-                filteredComments.map((c) => {
+                paginatedComments.map((c) => {
                   const isNeg = c.sentiment === 'Negative';
                   const isPos = c.sentiment === 'Positive';
                   return (
@@ -1422,6 +1526,34 @@ export default function App() {
                 })
               )}
             </div>
+
+            {/* Pagination Controls */}
+            {filteredComments.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-800 text-xs">
+                <span className="text-slate-400 font-mono text-[11px]">
+                  Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredComments.length)} of {filteredComments.length.toLocaleString()} matching comments
+                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 font-semibold transition cursor-pointer text-xs"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-slate-300 font-mono text-xs px-2">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 font-semibold transition cursor-pointer text-xs"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>

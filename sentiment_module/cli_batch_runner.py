@@ -110,6 +110,8 @@ def run_platform_batch(
         star_breakdown,
         star_rating_distribution,
         keyword_frequencies,
+        timeline_buckets,
+        keyword_stats,
     ) = nlp_engine.process_all_comments(
         preprocessed_items,
         model_option=model_option,
@@ -145,6 +147,9 @@ def run_platform_batch(
         star_rating_breakdown=star_breakdown,
         star_rating_distribution=star_rating_distribution,
         keyword_frequencies=keyword_frequencies,
+        keyword_stats=keyword_stats,
+        timeline_buckets=timeline_buckets,
+        platform_reported_total=post_input.platform_reported_total or len(processed_comments),
     )
     cache_path = cache_mgr.save_report(report)
     print(f"  [4/5] Pre-computed summary saved atomically to: {cache_path.name}")

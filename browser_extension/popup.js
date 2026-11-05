@@ -1,6 +1,6 @@
 /**
- * Sentinelytics Extension Popup Controller
- * Connects active browser tab with FastAPI backend at http://localhost:8000
+ * Sentinelytics Extension Popup Controller v2.1
+ * Guaranteed Content-Script Injection & Direct Backend Ingestion
  */
 
 const BACKEND_URL = "http://localhost:8000";
@@ -54,21 +54,47 @@ document.addEventListener("DOMContentLoaded", async () => {
     statusBanner.className = `status-banner ${type}`;
   }
 
+  // CRITICAL FIX: Always ensure content script is injected BEFORE any message call
+  async function ensureContentScript() {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: currentTabId },
+        files: ["content.js"],
+      });
+    } catch (err) {
+      console.warn("[Sentinelytics] executeScript notice:", err.message);
+    }
+  }
+
+  async function sendTabMessage(msg) {
+    await ensureContentScript();
+    return new Promise((resolve) => {
+      chrome.tabs.sendMessage(currentTabId, msg, (resp) => {
+        if (chrome.runtime.lastError) {
+          console.warn("[Sentinelytics] Message error:", chrome.runtime.lastError.message);
+          resolve(null);
+        } else {
+          resolve(resp);
+        }
+      });
+    });
+  }
+
   function updateStatusFromResponse(resp) {
     if (!resp) return;
     currentPlatform = resp.platform || "unsupported";
     currentPostId = resp.postId;
     currentTitle = resp.title || tab.title;
-    isScrolling = resp.isAutoScrolling;
+    isScrolling = Boolean(resp.isAutoScrolling);
 
     platformPill.textContent = currentPlatform.toUpperCase();
     platformPill.className = `platform-pill platform-${currentPlatform}`;
-    targetTitle.textContent = currentTitle || "Unknown Page";
+    targetTitle.textContent = currentTitle || "Active Webpage";
     commentCount.textContent = resp.count || 0;
 
     if (currentPlatform !== "unsupported") {
       toggleScrollBtn.disabled = false;
-      sendToDashboardBtn.disabled = (resp.count === 0);
+      sendToDashboardBtn.disabled = resp.count === 0;
 
       if (isScrolling) {
         toggleScrollBtn.className = "btn btn-stop";
@@ -92,111 +118,96 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
-  function queryTabStatus() {
-    chrome.tabs.sendMessage(currentTabId, { action: "GET_STATUS" }, (resp) => {
-      if (chrome.runtime.lastError || !resp) {
-        // Content script might need injection if tab was open before extension load
-        chrome.scripting.executeScript(
-          { target: { tabId: currentTabId }, files: ["content.js"] },
-          () => {
-            if (!chrome.runtime.lastError) {
-              setTimeout(() => {
-                chrome.tabs.sendMessage(currentTabId, { action: "GET_STATUS" }, updateStatusFromResponse);
-              }, 300);
-            } else {
-              setBanner("Refresh active tab to enable Sentinelytics collector.", "error");
-            }
-          }
-        );
-      } else {
-        updateStatusFromResponse(resp);
-      }
-    });
+  async function queryTabStatus() {
+    const resp = await sendTabMessage({ action: "GET_STATUS" });
+    if (resp) {
+      updateStatusFromResponse(resp);
+    } else {
+      setBanner("Could not connect to active tab DOM. Ensure URL is http(s).", "error");
+    }
   }
 
-  queryTabStatus();
+  await queryTabStatus();
 
-  // Auto-refresh counter every 1.5 seconds if scrolling
-  const pollInterval = setInterval(() => {
+  // Auto-refresh counter every 1.2 seconds
+  const pollInterval = setInterval(async () => {
     if (currentPlatform !== "unsupported") {
-      chrome.tabs.sendMessage(currentTabId, { action: "GET_STATUS" }, (resp) => {
-        if (!chrome.runtime.lastError && resp) {
-          commentCount.textContent = resp.count || 0;
-          if (resp.count > 0) sendToDashboardBtn.disabled = false;
-        }
-      });
+      const resp = await sendTabMessage({ action: "GET_STATUS" });
+      if (resp) {
+        commentCount.textContent = resp.count || 0;
+        if (resp.count > 0) sendToDashboardBtn.disabled = false;
+      }
     }
-  }, 1500);
+  }, 1200);
 
   // Toggle Auto-Scroll Button
-  toggleScrollBtn.addEventListener("click", () => {
+  toggleScrollBtn.addEventListener("click", async () => {
     const action = isScrolling ? "STOP_AUTO_SCROLL" : "START_AUTO_SCROLL";
-    chrome.tabs.sendMessage(currentTabId, { action }, (resp) => {
-      queryTabStatus();
-    });
+    const resp = await sendTabMessage({ action });
+    if (resp) {
+      await queryTabStatus();
+    }
   });
 
   // E-Commerce Pagination Button
-  paginateBtn.addEventListener("click", () => {
+  paginateBtn.addEventListener("click", async () => {
     paginateBtn.disabled = true;
     setBanner("Fetching subsequent pages using your active cookies...", "normal");
-    chrome.tabs.sendMessage(currentTabId, { action: "FETCH_PAGES", pages: 5 }, (resp) => {
-      paginateBtn.disabled = false;
-      if (resp && resp.status === "success") {
-        commentCount.textContent = resp.count;
-        sendToDashboardBtn.disabled = false;
-        setBanner(`Fetched pages! Total reviews now: ${resp.count}`, "success");
-      } else {
-        setBanner("Failed to paginate pages.", "error");
-      }
-    });
+    const resp = await sendTabMessage({ action: "FETCH_PAGES", pages: 5 });
+    paginateBtn.disabled = false;
+    if (resp && resp.status === "success") {
+      commentCount.textContent = resp.count;
+      sendToDashboardBtn.disabled = false;
+      setBanner(`Fetched pages! Total reviews now: ${resp.count}`, "success");
+    } else {
+      setBanner("Pagination complete or blocked.", "normal");
+    }
   });
 
   // Send to Dashboard Button
-  sendToDashboardBtn.addEventListener("click", () => {
+  sendToDashboardBtn.addEventListener("click", async () => {
     sendToDashboardBtn.disabled = true;
     setBanner("Extracting comments from active DOM...", "normal");
 
-    chrome.tabs.sendMessage(currentTabId, { action: "GET_ALL_COMMENTS" }, async (resp) => {
-      if (!resp || !resp.comments || resp.comments.length === 0) {
-        setBanner("No comments found in DOM to send.", "error");
-        sendToDashboardBtn.disabled = false;
-        return;
+    const resp = await sendTabMessage({ action: "GET_ALL_COMMENTS" });
+    if (!resp || !resp.comments || resp.comments.length === 0) {
+      setBanner("No comments found in DOM to send.", "error");
+      sendToDashboardBtn.disabled = false;
+      return;
+    }
+
+    setBanner(`Sending ${resp.comments.length} comments to FastAPI backend...`, "normal");
+
+    const payload = {
+      post_url: resp.url,
+      post_id: resp.postId,
+      title: resp.title,
+      platform: resp.platform,
+      comments: resp.comments,
+      model_option: "vader_hybrid",
+    };
+
+    try {
+      const apiRes = await fetch(`${BACKEND_URL}/api/ingest-browser`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!apiRes.ok) {
+        const errData = await apiRes.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server returned ${apiRes.status}`);
       }
 
-      setBanner(`Sending ${resp.comments.length} comments to FastAPI backend...`, "normal");
+      const data = await apiRes.json();
+      setBanner(`✅ Analyzed ${data.total_valid_comments} comments! Opening dashboard...`, "success");
 
-      const payload = {
-        post_url: resp.url,
-        post_id: resp.postId,
-        title: resp.title,
-        platform: resp.platform,
-        comments: resp.comments,
-        model_option: "vader_hybrid",
-      };
-
-      try {
-        const apiRes = await fetch(`${BACKEND_URL}/api/ingest-browser`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        if (!apiRes.ok) {
-          const errData = await apiRes.json().catch(() => ({}));
-          throw new Error(errData.detail || `Server returned ${apiRes.status}`);
-        }
-
-        const data = await apiRes.json();
-        setBanner(`✅ Analyzed ${data.total_valid_comments} comments! Opening dashboard...`, "success");
-
-        // Open dashboard with query param
-        chrome.tabs.create({ url: `${DASHBOARD_URL}/?post_id=${data.post_id}` });
-        window.close();
-      } catch (err) {
-        setBanner(`Error: ${err.message}`, "error");
-        sendToDashboardBtn.disabled = false;
-      }
-    });
+      // Open dashboard with query param
+      chrome.tabs.create({ url: `${DASHBOARD_URL}/?post_id=${data.post_id}` });
+      window.close();
+    } catch (err) {
+      setBanner(`Error: ${err.message}`, "error");
+      sendToDashboardBtn.disabled = false;
+    }
   });
 });

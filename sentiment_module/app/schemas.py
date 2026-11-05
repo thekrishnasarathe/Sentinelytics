@@ -32,6 +32,8 @@ class PostInput(BaseModel):
     is_demo: bool = Field(default=False, description="Whether data is from an offline sample preset")
     data_source: str = Field(default="Live Web Scrape (Zero API Key)", description="Provenance of data")
     data_source_badge: str = Field(default="LIVE: Direct Scraper", description="Short badge representation")
+    platform_reported_total: Optional[int] = Field(default=None, description="Reported total from platform metadata")
+    warning_message: Optional[str] = Field(default=None, description="Warning banner for anti-bot detection or fallbacks")
 
 
 class AnalyzeRequest(BaseModel):
@@ -143,6 +145,22 @@ class CachedReport(BaseModel):
     keyword_frequencies: Optional[List[Dict[str, Any]]] = Field(
         default=None,
         description="Dynamic keyword counts for issue & praise breakdown (e.g. [{'keyword': 'crash', 'count': 42, 'sentiment': 'Negative'}])"
+    )
+    keyword_stats: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Top 8-12 dynamic keywords/phrases extracted directly from comments"
+    )
+    timeline_buckets: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="10 to 12 evenly-spaced chronological wave buckets with positive, neutral, negative counts"
+    )
+    platform_reported_total: Optional[int] = Field(
+        default=None,
+        description="Total comments reported by platform metadata (e.g. 51,240 on YouTube)"
+    )
+    warning_message: Optional[str] = Field(
+        default=None,
+        description="Active warning or anti-bot notification banner"
     )
     is_demo: bool = Field(
         default=False,

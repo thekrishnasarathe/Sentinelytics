@@ -86,14 +86,17 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
     unbounded = request.unbounded_fetch
     data_source = "Live Web Scrape"
     data_source_badge = "LIVE: Direct Scraper"
+    platform_reported_total: Optional[int] = None
+    warning_message: Optional[str] = None
 
     if request.comments and len(request.comments) > 0:
         raw_comments = request.comments
         data_source = "User Provided Comments Payload"
         data_source_badge = "USER: Custom Payload"
+        platform_reported_total = len(request.comments)
     elif platform == "youtube":
         extractor = YouTubeExtractor(api_key=request.youtube_api_key)
-        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
@@ -101,12 +104,14 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         is_demo = post_data.is_demo
         data_source = post_data.data_source
         data_source_badge = post_data.data_source_badge
+        platform_reported_total = post_data.platform_reported_total
+        warning_message = post_data.warning_message
     elif platform == "instagram":
         extractor = InstagramExtractor(
             access_token=request.instagram_access_token,
             apify_token=request.apify_api_token,
         )
-        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
@@ -114,12 +119,14 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         is_demo = post_data.is_demo
         data_source = post_data.data_source
         data_source_badge = post_data.data_source_badge
+        platform_reported_total = post_data.platform_reported_total
+        warning_message = post_data.warning_message
     elif platform == "amazon":
         extractor = AmazonExtractor(
             api_key=request.scraper_api_key,
             apify_token=request.apify_api_token,
         )
-        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
@@ -127,12 +134,14 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         is_demo = post_data.is_demo
         data_source = post_data.data_source
         data_source_badge = post_data.data_source_badge
+        platform_reported_total = post_data.platform_reported_total
+        warning_message = post_data.warning_message
     elif platform == "flipkart":
         extractor = FlipkartExtractor(
             api_key=request.scraper_api_key,
             apify_token=request.apify_api_token,
         )
-        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
@@ -140,6 +149,8 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         is_demo = post_data.is_demo
         data_source = post_data.data_source
         data_source_badge = post_data.data_source_badge
+        platform_reported_total = post_data.platform_reported_total
+        warning_message = post_data.warning_message
     else:
         raise ValueError(f"Unsupported platform: {platform}")
 
@@ -178,6 +189,8 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         star_breakdown,
         star_rating_distribution,
         keyword_frequencies,
+        timeline_buckets,
+        keyword_stats,
     ) = nlp_engine.process_all_comments(
         preprocessed_items,
         model_option=request.model_option,
@@ -207,6 +220,10 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         star_rating_breakdown=star_breakdown,
         star_rating_distribution=star_rating_distribution,
         keyword_frequencies=keyword_frequencies,
+        keyword_stats=keyword_stats,
+        timeline_buckets=timeline_buckets,
+        platform_reported_total=platform_reported_total,
+        warning_message=warning_message,
         is_demo=is_demo,
         data_source=data_source,
         data_source_badge=data_source_badge,

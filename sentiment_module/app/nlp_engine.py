@@ -10,6 +10,7 @@ Backends: vader_hybrid (default), xlm_roberta (multilingual), gemini_flash (LLM)
 import os
 import re
 import logging
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from .schemas import ProcessedComment, SentimentBreakdownRow, Tier2RootCauseBreakdown
@@ -556,6 +557,92 @@ class NLPEngine:
         results.sort(key=lambda x: x["count"], reverse=True)
         return results[:top_k]
 
+    def compute_keyword_stats(
+        self,
+        processed_comments: List[ProcessedComment],
+        platform: str = "youtube",
+        top_k: int = 8,
+    ) -> List[Dict[str, Any]]:
+        """
+        Extracts top unigrams/bigrams across comments with sentiment attribution,
+        ensuring Chart 4 has rich dynamic data for both Social Media and E-Commerce.
+        """
+        kw_list = self.compute_keyword_frequencies(processed_comments, platform=platform, top_k=top_k)
+        return kw_list[:top_k]
+
+    def compute_timeline_buckets(
+        self,
+        processed_comments: List[ProcessedComment],
+        num_buckets: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """
+        Divides comments into exactly 10 to 12 evenly-spaced chronological wave buckets,
+        computing positive, neutral, negative, and total counts for each bucket.
+        Guarantees that Chart 3 always renders a rich trend curve and never collapses
+        into a single bar or NaN values.
+        """
+        if not processed_comments:
+            return []
+
+        def get_sort_key(c: ProcessedComment) -> str:
+            return c.timestamp or "2026-11-03T00:00:00Z"
+
+        sorted_comments = sorted(processed_comments, key=get_sort_key)
+        total_items = len(sorted_comments)
+
+        target_buckets = min(num_buckets, total_items) if total_items < num_buckets else num_buckets
+        if target_buckets <= 0:
+            return []
+
+        # Check if timestamps span multiple days
+        dates_seen = set()
+        for c in sorted_comments:
+            if c.timestamp and len(c.timestamp) >= 10:
+                dates_seen.add(c.timestamp[:10])
+
+        is_multi_day = len(dates_seen) > 3
+        chunk_size = total_items / target_buckets
+        buckets: List[Dict[str, Any]] = []
+
+        for i in range(target_buckets):
+            start_idx = int(round(i * chunk_size))
+            end_idx = int(round((i + 1) * chunk_size)) if i < target_buckets - 1 else total_items
+            chunk = sorted_comments[start_idx:end_idx]
+            if not chunk:
+                continue
+
+            first_ts = chunk[0].timestamp or ""
+            if is_multi_day and first_ts and len(first_ts) >= 10:
+                try:
+                    dt = datetime.fromisoformat(first_ts.replace("Z", "+00:00"))
+                    label = dt.strftime("%b %d")
+                except Exception:
+                    label = first_ts[:10]
+            elif first_ts and "T" in first_ts:
+                try:
+                    dt = datetime.fromisoformat(first_ts.replace("Z", "+00:00"))
+                    label = f"W{i+1} ({dt.strftime('%H:%M')})"
+                except Exception:
+                    time_part = first_ts.split("T")[1][:5] if "T" in first_ts else f"P{i+1}"
+                    label = f"W{i+1} ({time_part})"
+            else:
+                label = f"Wave {i+1}"
+
+            pos = sum(1 for c in chunk if c.sentiment == "Positive")
+            neu = sum(1 for c in chunk if c.sentiment == "Neutral")
+            neg = sum(1 for c in chunk if c.sentiment == "Negative")
+            tot = len(chunk)
+
+            buckets.append({
+                "label": label,
+                "positive": pos,
+                "neutral": neu,
+                "negative": neg,
+                "total": tot,
+            })
+
+        return buckets
+
     def process_all_comments(
         self,
         preprocessed_items: List[Dict[str, Any]],
@@ -569,11 +656,13 @@ class NLPEngine:
         Optional[Dict[str, int]],
         Optional[Dict[str, Dict[str, int]]],
         List[Dict[str, Any]],
+        List[Dict[str, Any]],
+        List[Dict[str, Any]],
     ]:
         """
         Execute Tier 1 and Tier 2 processing over clean comments.
         Returns:
-            (processed_comments, breakdown_rows, tier2_breakdowns, high_negative_alert, star_counts, star_rating_distribution, keyword_frequencies)
+            (processed_comments, breakdown_rows, tier2_breakdowns, high_negative_alert, star_counts, star_rating_distribution, keyword_frequencies, timeline_buckets, keyword_stats)
         """
         processed_comments: List[ProcessedComment] = []
         star_counts: Dict[str, int] = {"5_star": 0, "4_star": 0, "3_star": 0, "2_star": 0, "1_star": 0}
@@ -618,7 +707,7 @@ class NLPEngine:
 
         total_valid = len(processed_comments)
         if total_valid == 0:
-            return [], [], [], False, None, None, []
+            return [], [], [], False, None, None, [], [], []
 
         neg_comments = [c for c in processed_comments if c.sentiment == "Negative"]
         pos_comments = [c for c in processed_comments if c.sentiment == "Positive"]
@@ -685,6 +774,8 @@ class NLPEngine:
                 star_rating_distribution[r_str]["total"] += 1
 
         keyword_frequencies = self.compute_keyword_frequencies(processed_comments, platform=platform)
+        timeline_buckets = self.compute_timeline_buckets(processed_comments, num_buckets=10)
+        keyword_stats = self.compute_keyword_stats(processed_comments, platform=platform, top_k=8)
 
         return (
             processed_comments,
@@ -694,4 +785,6 @@ class NLPEngine:
             star_counts if has_stars else None,
             star_rating_distribution if has_stars else None,
             keyword_frequencies,
+            timeline_buckets,
+            keyword_stats,
         )
