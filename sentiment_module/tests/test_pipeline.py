@@ -585,3 +585,112 @@ async def test_runtime_api_keys_settings_endpoint():
         youtube_api_key=original_key,
         apify_api_token=os.environ.get("APIFY_API_TOKEN", "apify_test_token_abc123"),
     ))
+
+
+def test_normalize_timestamp_unit():
+    """
+    Verify preprocessor.normalize_timestamp converts relative time strings,
+    UNIX epochs, Amazon review strings, and standard dates to valid ISO-8601 UTC.
+    """
+    from app.preprocessor import CommentPreprocessor
+    cp = CommentPreprocessor()
+
+    # Relative time
+    ts_hours = cp.normalize_timestamp("4 hours ago")
+    assert "T" in ts_hours and ts_hours.endswith("Z")
+
+    ts_days = cp.normalize_timestamp("3 days ago")
+    assert "T" in ts_days and ts_days.endswith("Z")
+
+    # Amazon format
+    ts_amz = cp.normalize_timestamp("Reviewed in India on 15 October 2026")
+    assert "2026-10-15" in ts_amz
+
+    # UNIX epoch
+    ts_epoch = cp.normalize_timestamp(1700000000)
+    assert "T" in ts_epoch and ts_epoch.endswith("Z")
+
+    # Empty or none
+    ts_fallback = cp.normalize_timestamp(None)
+    assert "T" in ts_fallback and ts_fallback.endswith("Z")
+
+
+@pytest.mark.anyio
+async def test_browser_ingestion_endpoint():
+    """
+    Verify POST /api/ingest-browser:
+    - Ingests real browser-scraped payload
+    - Computes 100% negative root causes
+    - Computes dynamic keyword frequencies
+    - Computes star rating distribution
+    - Caches report with 'LIVE: Browser Extension (Verified)' badge
+    """
+    from app.main import ingest_browser
+    from app.schemas import BrowserIngestRequest, CommentInput
+    from fastapi import BackgroundTasks
+
+    payload = BrowserIngestRequest(
+        post_url="https://www.instagram.com/reel/C8browserTest/",
+        post_id="C8browserTest",
+        title="Live Instagram Test Post",
+        platform="instagram",
+        comments=[
+            CommentInput(
+                comment_id="ig_ext_1",
+                raw_text="App crash on mobile whenever I open the dashboard! Terrible bug",
+                timestamp="2 hours ago",
+                like_count=15,
+                anonymized_author_id="hash_user_1",
+            ),
+            CommentInput(
+                comment_id="ig_ext_2",
+                raw_text="Bhai this tutorial was super helpful and mast explanation! Loved it 🔥",
+                timestamp="5 hours ago",
+                like_count=45,
+                anonymized_author_id="hash_user_2",
+            ),
+            CommentInput(
+                comment_id="ig_ext_3",
+                raw_text="Audio sync is completely broken in the second half. Buzzing sound",
+                timestamp="1 day ago",
+                like_count=5,
+                anonymized_author_id="hash_user_3",
+            ),
+        ],
+        model_option="vader_hybrid",
+    )
+
+    bg_tasks = BackgroundTasks()
+    report = await ingest_browser(payload, bg_tasks)
+
+    assert report.post_id == "C8browserTest"
+    assert report.platform == "instagram"
+    assert report.total_raw_comments == 3
+    assert report.data_source_badge == "LIVE: Browser Extension (Verified)"
+    assert report.keyword_frequencies is not None
+    assert len(report.keyword_frequencies) > 0
+    # Root causes for negatives must cover 100% of negative comments
+    neg_count = sum(r.comment_count for r in report.breakdown if r.category == "Negative")
+    root_cause_sum = sum(rc.count for rc in report.tier2_root_causes)
+    assert root_cause_sum == neg_count
+
+
+def test_blocked_live_extractor_raises_value_error():
+    """
+    Verify live extractors do NOT generate fake synthetic comments when blocked;
+    instead they raise a descriptive ValueError prompting the browser extension.
+    """
+    from app.extractor import AmazonExtractor, FlipkartExtractor, InstagramExtractor
+    import pytest
+
+    amz = AmazonExtractor()
+    with pytest.raises(ValueError, match="Amazon live scraping blocked"):
+        amz.extract("https://www.amazon.in/dp/B0XYZFAKE99", is_demo=False)
+
+    flp = FlipkartExtractor()
+    with pytest.raises(ValueError, match="Flipkart live scraping blocked"):
+        flp.extract("https://www.flipkart.com/test-product/p/itm123456fake?pid=XYZ999", is_demo=False)
+
+    ig = InstagramExtractor()
+    with pytest.raises(ValueError, match="Instagram live scraping blocked"):
+        ig.extract("https://www.instagram.com/p/FAKE1234567/", is_demo=False)

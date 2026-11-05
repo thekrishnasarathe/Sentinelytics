@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .schemas import AnalyzeRequest, CachedReport, SettingsKeysResponse, SettingsKeysUpdate
+from .schemas import AnalyzeRequest, CachedReport, SettingsKeysResponse, SettingsKeysUpdate, BrowserIngestRequest
 from .extractor import (
     YouTubeExtractor,
     InstagramExtractor,
@@ -153,12 +153,14 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
     preprocessed_items = []
     for c in clean_comments:
         p_res = preprocessor.preprocess(c.raw_text)
+        # Normalize relative/variant timestamps into clean ISO-8601 strings
+        norm_ts = preprocessor.normalize_timestamp(c.timestamp)
         preprocessed_items.append({
             "comment_id": c.comment_id,
             "anonymized_author_id": c.anonymized_author_id,
             "raw_text": c.raw_text,
             "cleaned_text": p_res["cleaned_text"],
-            "timestamp": c.timestamp,
+            "timestamp": norm_ts,
             "like_count": c.like_count,
             "is_sarcastic": p_res["is_sarcastic"],
             "sarcastic_override_score": p_res["sarcastic_override_score"],
@@ -174,14 +176,16 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         tier2_breakdowns,
         high_negative_alert,
         star_breakdown,
+        star_rating_distribution,
+        keyword_frequencies,
     ) = nlp_engine.process_all_comments(
         preprocessed_items,
         model_option=request.model_option,
         platform=platform,
     )
 
-    # Provide complete list of processed comments for interactive feed (up to 2,500)
-    sample_preview = processed_comments if len(processed_comments) <= 2500 else processed_comments[:2500]
+    # Provide 100% complete list of processed comments without arbitrary truncations
+    sample_preview = processed_comments
 
     # Build CachedReport
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
@@ -201,6 +205,8 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         unbounded_fetch=unbounded,
         pages_fetched=pages_fetched,
         star_rating_breakdown=star_breakdown,
+        star_rating_distribution=star_rating_distribution,
+        keyword_frequencies=keyword_frequencies,
         is_demo=is_demo,
         data_source=data_source,
         data_source_badge=data_source_badge,
@@ -336,6 +342,53 @@ async def analyze_post(request: AnalyzeRequest, background_tasks: BackgroundTask
         raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ingest-browser", response_model=CachedReport)
+async def ingest_browser(request: BrowserIngestRequest, background_tasks: BackgroundTasks):
+    """
+    Ingests authentic, live comments or reviews directly from the Sentinelytics Chrome/Edge Extension
+    or manual browser DOM collector. Runs the 4-step Preprocessor, 2-Tier NLP Engine,
+    caches report atomically, and makes it available immediately in the dashboard.
+    """
+    if not request.comments or len(request.comments) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No comments provided in browser payload. Ensure comments are rendered on the active tab."
+        )
+
+    clean_id, detected_platform, canonical_url = parse_url_and_detect_platform(
+        request.post_url or request.post_id
+    )
+    platform = (request.platform or detected_platform or "youtube").lower()
+    post_url = request.post_url or canonical_url
+    post_id = clean_id or request.post_id
+
+    analyze_req = AnalyzeRequest(
+        post_id=post_id,
+        post_url=post_url,
+        platform=platform,
+        model_option=request.model_option,
+        comments=request.comments,
+        unbounded_fetch=True,
+        is_demo=False,
+    )
+
+    try:
+        report = execute_analysis_pipeline(analyze_req)
+        # Update badge to reflect browser extension provenance
+        report.data_source = "Live Ingestion via Sentinelytics Browser Extension"
+        report.data_source_badge = "LIVE: Browser Extension (Verified)"
+        cache_mgr.save_report(report)
+
+        # Pre-warm CSV & PDF exports
+        background_tasks.add_task(exporter.export_to_csv, report.post_id)
+        background_tasks.add_task(exporter.export_to_pdf, report.post_id)
+        return report
+    except ValueError as ve:
+        raise HTTPException(status_code=422, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process browser payload: {str(e)}")
 
 
 @app.get("/api/report/{post_id}", response_model=CachedReport)

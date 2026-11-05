@@ -413,16 +413,167 @@ class NLPEngine:
             else: # Neutral
                 return ["Timestamp queries", "User tags & timestamps", "General questions"]
 
+    def compute_keyword_frequencies(
+        self,
+        processed_comments: List[ProcessedComment],
+        platform: str = "youtube",
+        top_k: int = 12,
+    ) -> List[Dict[str, Any]]:
+        """
+        Dynamically extracts top recurring keywords and phrases across comments,
+        differentiating Positive praise and Negative issues with exact comment frequency.
+        """
+        stopwords = {
+            "the", "and", "is", "in", "to", "of", "a", "it", "this", "that", "for", "on", "with",
+            "as", "at", "by", "from", "be", "are", "was", "were", "an", "have", "has", "had",
+            "do", "does", "did", "not", "but", "so", "if", "or", "because", "my", "me", "we",
+            "our", "you", "your", "they", "them", "he", "she", "his", "her", "its", "all", "any",
+            "some", "very", "too", "also", "just", "now", "then", "there", "here", "when", "where",
+            "why", "how", "what", "which", "who", "whom", "will", "would", "can", "could", "should",
+            "video", "post", "product", "item", "phone", "review", "buying", "bought", "buy",
+            "hai", "ho", "ka", "ki", "ke", "ko", "se", "me", "mein", "par", "bhi", "tha", "thi",
+            "aur", "yeh", "woh", "ye", "wo", "kya", "kyu", "karo", "karna", "hoga", "hain"
+        }
+
+        # Domain seed phrases / high-signal keywords to check
+        if platform in ("amazon", "flipkart"):
+            target_keywords = [
+                # Negative issues
+                ("battery drain", "Negative"),
+                ("heating", "Negative"),
+                ("overheating", "Negative"),
+                ("defective", "Negative"),
+                ("broken", "Negative"),
+                ("crackling sound", "Negative"),
+                ("damaged box", "Negative"),
+                ("late delivery", "Negative"),
+                ("delayed", "Negative"),
+                ("missing adapter", "Negative"),
+                ("fake product", "Negative"),
+                ("duplicate", "Negative"),
+                ("nakli", "Negative"),
+                ("counterfeit", "Negative"),
+                ("refund denied", "Negative"),
+                ("overpriced", "Negative"),
+                ("paisa barbaad", "Negative"),
+                ("waste of money", "Negative"),
+                ("touch lag", "Negative"),
+                # Positive praise
+                ("paisa vasool", "Positive"),
+                ("superb camera", "Positive"),
+                ("battery backup", "Positive"),
+                ("fast delivery", "Positive"),
+                ("genuine product", "Positive"),
+                ("original", "Positive"),
+                ("display 120hz", "Positive"),
+                ("butter smooth", "Positive"),
+                ("fast charging", "Positive"),
+                ("mast phone", "Positive"),
+                ("great value", "Positive"),
+                ("premium build", "Positive"),
+            ]
+        else:  # Social Media
+            target_keywords = [
+                # Negative issues
+                ("crash", "Negative"),
+                ("app crash", "Negative"),
+                ("bug", "Negative"),
+                ("glitch", "Negative"),
+                ("audio sync", "Negative"),
+                ("sound issue", "Negative"),
+                ("login broke", "Negative"),
+                ("freeze", "Negative"),
+                ("clickbait", "Negative"),
+                ("waste of time", "Negative"),
+                ("boring", "Negative"),
+                ("disappointed", "Negative"),
+                ("ghatiya", "Negative"),
+                ("bekar", "Negative"),
+                ("bakwas", "Negative"),
+                ("troll", "Negative"),
+                ("lag", "Negative"),
+                # Positive praise
+                ("helpful tutorial", "Positive"),
+                ("clear explanation", "Positive"),
+                ("mast video", "Positive"),
+                ("awesome edit", "Positive"),
+                ("superb content", "Positive"),
+                ("good work", "Positive"),
+                ("zabardast", "Positive"),
+                ("informative", "Positive"),
+                ("love this", "Positive"),
+                ("badiya", "Positive"),
+                ("keep it up", "Positive"),
+                ("next level", "Positive"),
+            ]
+
+        results = []
+        total_comments = len(processed_comments) or 1
+
+        # Check domain seed phrases
+        for phrase, sentiment in target_keywords:
+            matching = [
+                c for c in processed_comments
+                if phrase in c.raw_text.lower() or phrase in c.cleaned_text.lower()
+            ]
+            if len(matching) > 0:
+                results.append({
+                    "keyword": phrase.title(),
+                    "count": len(matching),
+                    "sentiment": sentiment,
+                    "percentage": round(len(matching) / total_comments * 100.0, 1),
+                })
+
+        # Also extract frequent individual meaningful words from negative/positive comments
+        word_counts: Dict[str, Dict[str, int]] = {}
+        for c in processed_comments:
+            words = set(re.findall(r"\b[a-zA-Z]{3,}\b", c.cleaned_text.lower()))
+            for w in words:
+                if w not in stopwords and len(w) > 3:
+                    if w not in word_counts:
+                        word_counts[w] = {"Positive": 0, "Negative": 0, "Neutral": 0}
+                    word_counts[w][c.sentiment] += 1
+
+        for w, counts in word_counts.items():
+            tot = counts["Positive"] + counts["Negative"] + counts["Neutral"]
+            if tot >= 3 and not any(r["keyword"].lower() == w.lower() for r in results):
+                if counts["Negative"] > counts["Positive"] * 1.5:
+                    results.append({
+                        "keyword": w.capitalize(),
+                        "count": counts["Negative"],
+                        "sentiment": "Negative",
+                        "percentage": round(counts["Negative"] / total_comments * 100.0, 1),
+                    })
+                elif counts["Positive"] > counts["Negative"] * 1.5:
+                    results.append({
+                        "keyword": w.capitalize(),
+                        "count": counts["Positive"],
+                        "sentiment": "Positive",
+                        "percentage": round(counts["Positive"] / total_comments * 100.0, 1),
+                    })
+
+        # Sort by count descending
+        results.sort(key=lambda x: x["count"], reverse=True)
+        return results[:top_k]
+
     def process_all_comments(
         self,
         preprocessed_items: List[Dict[str, Any]],
         model_option: str = "vader_hybrid",
         platform: str = "youtube",
-    ) -> Tuple[List[ProcessedComment], List[SentimentBreakdownRow], List[Tier2RootCauseBreakdown], bool, Optional[Dict[str, int]]]:
+    ) -> Tuple[
+        List[ProcessedComment],
+        List[SentimentBreakdownRow],
+        List[Tier2RootCauseBreakdown],
+        bool,
+        Optional[Dict[str, int]],
+        Optional[Dict[str, Dict[str, int]]],
+        List[Dict[str, Any]],
+    ]:
         """
         Execute Tier 1 and Tier 2 processing over clean comments.
         Returns:
-            (processed_comments, breakdown_rows, tier2_breakdowns, high_negative_alert, star_rating_breakdown)
+            (processed_comments, breakdown_rows, tier2_breakdowns, high_negative_alert, star_counts, star_rating_distribution, keyword_frequencies)
         """
         processed_comments: List[ProcessedComment] = []
         star_counts: Dict[str, int] = {"5_star": 0, "4_star": 0, "3_star": 0, "2_star": 0, "1_star": 0}
@@ -467,7 +618,7 @@ class NLPEngine:
 
         total_valid = len(processed_comments)
         if total_valid == 0:
-            return [], [], [], False, None
+            return [], [], [], False, None, None, []
 
         neg_comments = [c for c in processed_comments if c.sentiment == "Negative"]
         pos_comments = [c for c in processed_comments if c.sentiment == "Positive"]
@@ -522,10 +673,25 @@ class NLPEngine:
                 )
             )
 
+        # Compute star rating distribution segmented by sentiment
+        star_rating_distribution = {
+            str(r): {"Positive": 0, "Neutral": 0, "Negative": 0, "total": 0}
+            for r in range(1, 6)
+        }
+        for c in processed_comments:
+            if c.star_rating and 1 <= c.star_rating <= 5:
+                r_str = str(c.star_rating)
+                star_rating_distribution[r_str][c.sentiment] += 1
+                star_rating_distribution[r_str]["total"] += 1
+
+        keyword_frequencies = self.compute_keyword_frequencies(processed_comments, platform=platform)
+
         return (
             processed_comments,
             breakdown_rows,
             tier2_breakdowns,
             high_negative_alert,
             star_counts if has_stars else None,
+            star_rating_distribution if has_stars else None,
+            keyword_frequencies,
         )

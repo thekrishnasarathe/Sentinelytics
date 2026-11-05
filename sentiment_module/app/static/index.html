@@ -522,45 +522,60 @@
         t2Container.appendChild(item);
       });
 
-      // Chart 3: Time Series Bars
+      // Chart 3: Dynamic Time Series Bars (Emerald, Sky, Rose)
       const tsContainer = document.getElementById('timeSeriesBars');
-      tsContainer.innerHTML = `
-        <div class="flex-1 flex flex-col items-center h-full justify-end">
-          <div class="w-full flex items-end justify-center space-x-1 h-28">
-            <div class="w-1/2 bg-rose-500/80 rounded-t" style="height: 40%"></div>
-            <div class="w-1/2 bg-emerald-500/80 rounded-t" style="height: 20%"></div>
-          </div>
-          <span class="text-[10px] text-slate-400 mt-2 font-mono">01:00</span>
-        </div>
-        <div class="flex-1 flex flex-col items-center h-full justify-end">
-          <div class="w-full flex items-end justify-center space-x-1 h-28">
-            <div class="w-1/2 bg-rose-500/80 rounded-t" style="height: 70%"></div>
-            <div class="w-1/2 bg-emerald-500/80 rounded-t" style="height: 25%"></div>
-          </div>
-          <span class="text-[10px] text-slate-400 mt-2 font-mono">02:00</span>
-        </div>
-        <div class="flex-1 flex flex-col items-center h-full justify-end">
-          <div class="w-full flex items-end justify-center space-x-1 h-28">
-            <div class="w-1/2 bg-rose-500/80 rounded-t" style="height: 95%"></div>
-            <div class="w-1/2 bg-emerald-500/80 rounded-t" style="height: 30%"></div>
-          </div>
-          <span class="text-[10px] text-slate-400 mt-2 font-mono">03:00</span>
-        </div>
-        <div class="flex-1 flex flex-col items-center h-full justify-end">
-          <div class="w-full flex items-end justify-center space-x-1 h-28">
-            <div class="w-1/2 bg-rose-500/80 rounded-t" style="height: 80%"></div>
-            <div class="w-1/2 bg-emerald-500/80 rounded-t" style="height: 35%"></div>
-          </div>
-          <span class="text-[10px] text-slate-400 mt-2 font-mono">04:00</span>
-        </div>
-        <div class="flex-1 flex flex-col items-center h-full justify-end">
-          <div class="w-full flex items-end justify-center space-x-1 h-28">
-            <div class="w-1/2 bg-rose-500/80 rounded-t" style="height: 50%"></div>
-            <div class="w-1/2 bg-emerald-500/80 rounded-t" style="height: 45%"></div>
-          </div>
-          <span class="text-[10px] text-slate-400 mt-2 font-mono">05:00</span>
-        </div>
-      `;
+      const comments = report.sample_comments || [];
+      if (comments.length === 0) {
+        tsContainer.innerHTML = '<div class="text-xs text-slate-500 w-full text-center py-8">No time-series timestamps available</div>';
+      } else {
+        const parsed = comments.map(c => {
+          const d = new Date(c.timestamp);
+          return { sentiment: c.sentiment, date: isNaN(d.getTime()) ? new Date() : d };
+        }).sort((a, b) => a.date.getTime() - b.date.getTime());
+
+        const firstMs = parsed[0].date.getTime();
+        const lastMs = parsed[parsed.length - 1].date.getTime();
+        const diffHours = (lastMs - firstMs) / (1000 * 60 * 60);
+
+        const buckets = {};
+        parsed.forEach(c => {
+          let label = '';
+          const d = c.date;
+          if (diffHours <= 48) {
+            label = `${d.getHours().toString().padStart(2, '0')}:00`;
+          } else if (diffHours <= 24 * 60) {
+            label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          } else {
+            label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+          }
+          if (!buckets[label]) buckets[label] = { label, Negative: 0, Positive: 0, Neutral: 0, total: 0 };
+          buckets[label][c.sentiment] = (buckets[label][c.sentiment] || 0) + 1;
+          buckets[label].total += 1;
+        });
+
+        let entries = Object.values(buckets);
+        if (entries.length > 8) {
+          const step = Math.ceil(entries.length / 8);
+          entries = entries.filter((_, idx) => idx % step === 0 || idx === entries.length - 1);
+        }
+
+        const maxVal = Math.max(...entries.map(e => e.total), 1);
+        tsContainer.innerHTML = entries.map(b => {
+          const negH = (b.Negative / maxVal) * 100;
+          const neuH = (b.Neutral / maxVal) * 100;
+          const posH = (b.Positive / maxVal) * 100;
+          return `
+            <div class="flex-1 flex flex-col items-center h-full justify-end group relative" title="Neg: ${b.Negative}, Neu: ${b.Neutral}, Pos: ${b.Positive}">
+              <div class="w-full flex flex-col items-center justify-end h-28 space-y-0.5">
+                ${b.Negative > 0 ? `<div style="height: ${Math.max(4, negH)}%" class="w-full max-w-[24px] bg-rose-500 rounded-t"></div>` : ''}
+                ${b.Neutral > 0 ? `<div style="height: ${Math.max(4, neuH)}%" class="w-full max-w-[24px] bg-sky-400"></div>` : ''}
+                ${b.Positive > 0 ? `<div style="height: ${Math.max(4, posH)}%" class="w-full max-w-[24px] bg-emerald-500 rounded-b"></div>` : ''}
+              </div>
+              <span class="text-[10px] text-slate-400 mt-2 font-mono truncate max-w-full">${b.label}</span>
+            </div>
+          `;
+        }).join('');
+      }
 
       // Chart 4: Star Rating or Keywords
       const c4Title = document.getElementById('chart4Title');
@@ -591,19 +606,38 @@
         });
       } else {
         c4Title.innerText = 'Chart 4: Top Recurring Keyword Frequency';
-        c4Subtitle.innerText = 'Extracted complaint vs praise keyphrase clusters';
-        c4Container.innerHTML = `
-          <div class="space-y-2 text-xs">
-            <span class="font-semibold text-rose-400 block">Top Complaint Clusters:</span>
-            <div class="flex flex-wrap gap-1.5">
-              ${(negRow.top_keywords || []).map(kw => `<span class="px-2 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-800 text-[11px]">${kw}</span>`).join('')}
+        c4Subtitle.innerText = 'Extracted complaint vs praise keyphrase clusters with exact counts';
+        if (report.keyword_frequencies && report.keyword_frequencies.length > 0) {
+          c4Container.innerHTML = `
+            <div class="space-y-2 text-xs">
+              <span class="font-semibold text-slate-300 block">Top High-Signal Keywords:</span>
+              <div class="grid grid-cols-2 gap-2">
+                ${report.keyword_frequencies.slice(0, 8).map(kw => {
+                  const isNeg = kw.sentiment === 'Negative';
+                  return `
+                    <div class="p-2 rounded-xl border flex items-center justify-between ${isNeg ? 'bg-rose-950/40 border-rose-800 text-rose-300' : 'bg-emerald-950/40 border-emerald-800 text-emerald-300'}">
+                      <span class="font-bold truncate text-[11px]">${kw.keyword}</span>
+                      <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-900/80 ml-1 font-bold">${kw.count}</span>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
             </div>
-            <span class="font-semibold text-emerald-400 block pt-2">Top Praise Clusters:</span>
-            <div class="flex flex-wrap gap-1.5">
-              ${(posRow.top_keywords || []).map(kw => `<span class="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800 text-[11px]">${kw}</span>`).join('')}
+          `;
+        } else {
+          c4Container.innerHTML = `
+            <div class="space-y-2 text-xs">
+              <span class="font-semibold text-rose-400 block">Top Complaint Clusters:</span>
+              <div class="flex flex-wrap gap-1.5">
+                ${(negRow.top_keywords || []).map(kw => `<span class="px-2 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-800 text-[11px]">${kw}</span>`).join('')}
+              </div>
+              <span class="font-semibold text-emerald-400 block pt-2">Top Praise Clusters:</span>
+              <div class="flex flex-wrap gap-1.5">
+                ${(posRow.top_keywords || []).map(kw => `<span class="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800 text-[11px]">${kw}</span>`).join('')}
+              </div>
             </div>
-          </div>
-        `;
+          `;
+        }
       }
 
       renderCommentsFeed();
@@ -715,6 +749,11 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      const qPostId = params.get('post_id');
+      if (qPostId) {
+        document.getElementById('postInput').value = qPostId;
+      }
       runAnalysis();
     });
   </script>

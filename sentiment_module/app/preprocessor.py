@@ -7,8 +7,95 @@
 """
 
 import re
+from datetime import datetime, timezone, timedelta
 from typing import List, Tuple, Set, Dict, Optional, Any
+from dateutil import parser as date_parser
 from .schemas import CommentInput
+
+
+def normalize_timestamp(raw_ts: Any, fallback_index: int = 0) -> str:
+    """
+    Normalizes any comment timestamp format into a strict ISO-8601 string (YYYY-MM-DDTHH:MM:SSZ).
+    Handles:
+    - Numeric UNIX epochs (int/float or string, in seconds or milliseconds)
+    - Relative time strings ("2 hours ago", "3 days ago", "1 week ago", "4 months ago", "1 year ago", "yesterday", "just now")
+    - E-Commerce review date strings ("Reviewed in India on 15 October 2026", "15 Oct, 2026", "Oct 15, 2026")
+    - Standard ISO-8601 strings
+    - Missing/empty values (deterministic staggered fallback across last 72 hours)
+    """
+    now = datetime.now(timezone.utc)
+    if not raw_ts:
+        stagger_min = (fallback_index * 13) % (60 * 24 * 3)
+        return (now - timedelta(minutes=stagger_min)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Numeric epoch check
+    if isinstance(raw_ts, (int, float)):
+        ts_val = float(raw_ts)
+        if ts_val > 1e11:  # Milliseconds
+            ts_val /= 1000.0
+        try:
+            return datetime.fromtimestamp(ts_val, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            pass
+
+    s = str(raw_ts).strip()
+    if s.isdigit() and len(s) in (10, 13):
+        ts_val = float(s)
+        if len(s) == 13:
+            ts_val /= 1000.0
+        try:
+            return datetime.fromtimestamp(ts_val, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            pass
+
+    # Clean edits like "(edited)"
+    s_clean = re.sub(r"\(.*?\)", "", s).strip()
+    low = s_clean.lower()
+
+    if "just now" in low or "moment ago" in low or "seconds ago" in low:
+        return now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if "yesterday" in low:
+        return (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Relative time matching (e.g. '2 hours ago', '3 days ago', '4 months ago')
+    rel_m = re.search(r"(\d+)\s+(second|sec|minute|min|hour|hr|day|week|month|year)s?\s+ago", low)
+    if rel_m:
+        val = int(rel_m.group(1))
+        unit = rel_m.group(2)
+        if unit in ("second", "sec"):
+            dt = now - timedelta(seconds=val)
+        elif unit in ("minute", "min"):
+            dt = now - timedelta(minutes=val)
+        elif unit in ("hour", "hr"):
+            dt = now - timedelta(hours=val)
+        elif unit in ("day",):
+            dt = now - timedelta(days=val)
+        elif unit in ("week",):
+            dt = now - timedelta(weeks=val)
+        elif unit in ("month",):
+            dt = now - timedelta(days=val * 30)
+        elif unit in ("year",):
+            dt = now - timedelta(days=val * 365)
+        else:
+            dt = now
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Amazon format: 'Reviewed in India on 15 October 2026'
+    amz_m = re.search(r"on\s+([A-Za-z0-9,\s]+)$", s_clean, re.IGNORECASE)
+    candidate_date = amz_m.group(1).strip() if amz_m else s_clean
+
+    try:
+        dt = date_parser.parse(candidate_date, fuzzy=True)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        pass
+
+    stagger_min = (fallback_index * 13) % (60 * 24 * 3)
+    return (now - timedelta(minutes=stagger_min)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class CommentPreprocessor:
@@ -158,6 +245,10 @@ class CommentPreprocessor:
         self._compiled_spam_urls = [re.compile(p, re.IGNORECASE) for p in self.SPAM_URL_PATTERNS]
         self._compiled_spam_phrases = [re.compile(p, re.IGNORECASE) for p in self.SPAM_PHRASE_PATTERNS]
         self._sarcasm_regexes = [re.compile(p, re.IGNORECASE) for p in self.SARCASM_PATTERNS]
+
+    @staticmethod
+    def normalize_timestamp(raw_ts: Any, fallback_index: int = 0) -> str:
+        return normalize_timestamp(raw_ts, fallback_index=fallback_index)
 
     def is_spam_or_promo(self, text: str) -> bool:
         """Step 1: Detect promotional links, URL spam, or bot advertising."""

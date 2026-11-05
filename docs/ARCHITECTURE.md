@@ -63,6 +63,12 @@ The platform solves common production challenges:
 ```
 social-media-sentiment-analysis-module/
 │
+├── browser_extension/                   # Manifest V3 Chrome & Edge Live Extension
+│   ├── manifest.json                    # Extension manifest with activeTab & host permissions
+│   ├── popup.html                       # Dark-mode popup UI with live counter & controls
+│   ├── popup.js                         # Controller connecting active tab DOM to FastAPI
+│   └── content.js                       # Live DOM scraper for YouTube, Instagram, Flipkart, Amazon
+│
 ├── docs/                                # Technical Documentation & Reports
 │   ├── ARCHITECTURE.md                  # This complete architecture & dependency reference
 │   └── progress/                        # Daily progress tracking and MOM logs
@@ -104,7 +110,7 @@ social-media-sentiment-analysis-module/
 │   │
 │   └── tests/                           # End-to-End Automated Test Suite
 │       ├── __init__.py
-│       └── test_pipeline.py             # 13 comprehensive pytest test cases
+│       └── test_pipeline.py             # 16 comprehensive pytest test cases
 │
 ├── src/                                 # React 19 Frontend Dashboard
 │   ├── App.tsx                          # Complete analytics dashboard & comment explorer
@@ -134,6 +140,7 @@ social-media-sentiment-analysis-module/
 - **Role**: REST API entry point, pipeline orchestrator, and route dispatcher.
 - **Key Endpoints**:
   - `POST /api/analyze`: Executes full pipeline (Parse &rarr; Extract &rarr; Preprocess &rarr; Score &rarr; Cache).
+  - `POST /api/ingest-browser`: Ingests real live comments scraped by Browser Extension/DOM scraper.
   - `GET /api/export/{format}`: Streams pre-computed PDF or CSV export in < 0.02s.
   - `GET /api/settings/keys`: Returns runtime API key configuration status (masked).
   - `POST /api/settings/keys`: Dynamically updates and persists API keys at runtime.
@@ -428,3 +435,4 @@ python -m pytest sentiment_module/tests -v
 python cli_batch_runner.py
 ```
 - Benchmarks extraction, NLP scoring, and PDF/CSV export latency across YouTube, Instagram, Amazon, and Flipkart.
+

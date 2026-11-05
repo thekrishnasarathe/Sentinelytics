@@ -713,198 +713,6 @@ def generate_realistic_flipkart_dataset(output_path: Optional[Path] = None) -> D
     return dataset
 
 
-# --- Live Dynamic Anti-Bot Fallback Generators ---
-
-def build_live_ecommerce_reviews(
-    product_name: str,
-    item_id: str,
-    platform: str = "amazon",
-    count: int = 120,
-) -> List[CommentInput]:
-    """
-    Generates realistic, domain-adaptive customer reviews tailored to the target product.
-    Ensures 100% demo reliability and anti-bot resilience across Amazon & Flipkart URLs.
-    Includes 1★-5★ star ratings, verified purchase flags, and rich Hinglish/English diagnostics.
-    """
-    reviews: List[CommentInput] = []
-
-    defect_templates = [
-        f"Battery backup on {product_name} is very poor, drains from 100% to 20% in just 3 hours! Terrible battery life.",
-        f"Severe overheating issue while charging {product_name} and playing basic games. Defective hardware unit 😡",
-        f"Screen touch response is defective on {product_name} and display flickers randomly. Unusable lag.",
-        f"Speaker makes crackling sound on full volume. Cheap build and defective audio hardware on this unit.",
-        f"Camera lens is defective and gives blurry photos. Worst smartphone build quality 👎",
-        f"Phone heats up like iron box within 10 minutes of use. Battery drains rapidly.",
-        f"Power button got loose within a week. Very poor hardware quality from brand.",
-        f"Display touch became completely unresponsive on {product_name}. Defective screen hardware.",
-        f"Fingerprint scanner stopped working after 3 days. Extremely frustrating hardware defect.",
-        f"Defective motherboard, phone switched off and won't turn on again. Complete hardware failure.",
-    ]
-
-    delivery_templates = [
-        f"Delivery of {product_name} was delayed by 5 days, package was badly damaged with courier seal broken! 😡",
-        f"Damaged box received! Courier person was very rude and outer package was completely crushed.",
-        f"Charging adapter missing from the box! Outer seal of {product_name} was tampered upon arrival.",
-        f"Late delivery and delivery agent refused doorstep delivery. Packaging was torn open.",
-        f"Box had oil stains and seal was already broken. Poor logistics and packaging by seller.",
-        f"Courier threw the package over the gate, cracked corner of the retail box.",
-        f"Missing documentation and SIM ejector pin. Looks like a returned item sent as new.",
-        f"Delayed delivery by courier with no status update for a week. Terribly late shipping.",
-    ]
-
-    counterfeit_templates = [
-        f"Bilkul nakli product bheja hai! Fake copy of {product_name}, duplicate serial number not registering 😡",
-        f"Fake product, pure duplicate! Received wrong color variant and different cheap model inside.",
-        f"Dhoka hai yeh! Fake phone sent, duplicate charger and cheap plastic body. Dhoka seller!",
-        f"Received refurbished dirty unit instead of brand new {product_name}. Different from picture, fake item.",
-        f"Nakli product! Serial number mismatch on invoice and box. Complete counterfeit scam.",
-        f"Duplicate copy received, plastic finish looks very cheap compared to showroom piece.",
-    ]
-
-    value_templates = [
-        f"Total paisa barbaad! Overpriced specifications. Regret buying this {product_name}.",
-        f"Prices dropped by 3,000 rupees right after I purchased. Customer support refused price match.",
-        f"Brand service center refused warranty claiming physical damage. Pathetic customer support.",
-        f"Waste of hard earned money. Cheaper alternatives offer much better performance than this.",
-        f"Bekar product, definitely not value for money. Very disappointed with {product_name} pricing.",
-    ]
-
-    praise_templates = [
-        f"Paisa vasool deal! {product_name} performance is lightning fast and butter smooth.",
-        f"Superb camera quality! Takes shandar pictures in both daylight and night mode.",
-        f"Battery easily lasts more than 1.5 days on moderate usage. Very impressive battery life.",
-        f"Delivered within 24 hours in pristine condition! 100% genuine original seal.",
-        f"The display colors and 120Hz refresh rate make everyday scrolling a pleasure.",
-        f"Best smartphone in this segment. Clean software with zero bloatware. Mast phone hai.",
-        f"Sound quality from stereo speakers is loud and punchy. Loved watching movies on {product_name}.",
-        f"Fast charging charges from 0 to 80% in just 35 minutes. Great value for money purchase.",
-        f"Build quality feels very premium in hand. Sleek design and lightweight.",
-        f"Zabardast phone hai! Gaming is butter smooth with zero frame drops.",
-    ]
-
-    neutral_templates = [
-        f"Decent product for the price. Camera is strictly average, but battery is satisfactory.",
-        f"Average device. Good for calling and casual WhatsApp, not suited for heavy gaming.",
-        f"Expected better build quality for this price, but {product_name} performance is acceptable.",
-        f"Product is okay. Delivery took 4 days, but phone works as advertised.",
-        f"Neither too good nor bad. Average battery backup and decent display.",
-    ]
-
-    now = datetime.now(timezone.utc)
-    for i in range(count):
-        cat_roll = i % 10
-        hours_ago = (i * 3) % 336
-        t_stamp = (now - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        likes = (i * 7) % 45
-        author = f"buyer_{platform[:3]}_{abs(hash(item_id + str(i))) % 100000}"
-
-        if cat_roll in (0, 1, 2):
-            text = defect_templates[i % len(defect_templates)]
-            stars = 1 if cat_roll in (0, 1) else 2
-        elif cat_roll in (3,):
-            text = delivery_templates[i % len(delivery_templates)]
-            stars = 1 if i % 2 == 0 else 2
-        elif cat_roll in (4,):
-            text = counterfeit_templates[i % len(counterfeit_templates)]
-            stars = 1
-        elif cat_roll in (5,):
-            text = value_templates[i % len(value_templates)]
-            stars = 2
-        elif cat_roll in (6, 7, 8):
-            text = praise_templates[i % len(praise_templates)]
-            stars = 5 if cat_roll in (6, 7) else 4
-        else:
-            text = neutral_templates[i % len(neutral_templates)]
-            stars = 3
-
-        reviews.append(
-            CommentInput(
-                comment_id=f"{platform[:3]}_live_{item_id}_{i+1:04d}",
-                raw_text=text,
-                timestamp=t_stamp,
-                like_count=likes,
-                anonymized_author_id=get_author_hash(author),
-                star_rating=stars,
-                verified_purchase=True,
-                product_variant=None,
-            )
-        )
-    return reviews
-
-
-def build_live_instagram_comments(
-    shortcode: str,
-    count: int = 100,
-) -> List[CommentInput]:
-    """
-    Generates realistic, engagement-rich Instagram comments tailored to the target post/reel.
-    Ensures 100% demo uptime when Instagram login wall or rate limiting blocks requests.
-    """
-    comments: List[CommentInput] = []
-
-    praise_templates = [
-        "Bhai this transition was next level smooth! Loved the edit 🔥🔥🔥",
-        "Underrated creator! Your explanation was so clear and concise 👏",
-        "Best reel I've seen on this topic! Saving this for later 🙌",
-        "The color grading and lighting in this video is insane! What camera setup? 😍",
-        "Mast video banayi hai bhai! Keep grinding, 1M soon 🚀",
-        "Super helpful tutorial! Tried this today and it worked like a charm.",
-        "Such a wholesome reel ❤️ loved the background score.",
-        "Next level creativity! Your pacing and voiceover are top notch as always.",
-        "Loved the storytelling here! Extremely well shot and edited 🔥",
-        "Bro this deserves millions of views! Truly amazing work 👏",
-    ]
-
-    critique_templates = [
-        "Audio sync is completely off in the second half! Please fix the sound 😭",
-        "Why is the video quality so blurry and pixelated? Looks like 360p 👎",
-        "Sound is out of sync by 2 seconds! Check before publishing yaar.",
-        "Boring content bilkul, same repetitive reel concept every week. Unfollowing.",
-        "Faltu clickbait thumbnail and title! Pure time waste 😡",
-        "Bro the link in your bio is completely broken, error 404. Fix it!",
-        "Terrible audio buzzing in the mic, hurts the ears with headphones on.",
-        "Lmao dead content, ratio + nobody asked for this garbage.",
-        "Bekar update bhai, not working after login. Crashes immediately.",
-        "App crash on mobile whenever I open the dashboard. Please fix this bug!",
-    ]
-
-    neutral_templates = [
-        "Bhai which software did you use for the 3D text tracking?",
-        "Track ID please? Background music is giving major vibes!",
-        "Can you do a detailed tutorial on part 2? Watching from Delhi!",
-        "Timestamp for the camera settings? Helpful reel.",
-        "Waiting for the next episode! Great initiative 👍",
-        "What mic are you using for recording voiceovers?",
-        "Watching this on loop! Song name in background?",
-    ]
-
-    now = datetime.now(timezone.utc)
-    for i in range(count):
-        roll = i % 10
-        hours_ago = (i * 2) % 168
-        t_stamp = (now - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        likes = (i * 13) % 480 + 1
-        author = f"user_{abs(hash(shortcode + str(i))) % 100000}"
-
-        if roll in (0, 1, 2, 3, 4):
-            text = praise_templates[i % len(praise_templates)]
-        elif roll in (5, 6, 7):
-            text = critique_templates[i % len(critique_templates)]
-        else:
-            text = neutral_templates[i % len(neutral_templates)]
-
-        comments.append(
-            CommentInput(
-                comment_id=f"ig_live_{shortcode}_{i+1:04d}",
-                raw_text=text,
-                timestamp=t_stamp,
-                like_count=likes,
-                anonymized_author_id=get_author_hash(author),
-            )
-        )
-    return comments
-
-
 # --- Extractor Classes ---
 
 class YouTubeExtractor:
@@ -965,9 +773,9 @@ class YouTubeExtractor:
                 base_url = "https://www.googleapis.com/youtube/v3/commentThreads"
                 next_page_token: Optional[str] = None
                 pages_traversed = 0
-                fetch_cap = max_comments if max_comments is not None else 5000
+                fetch_cap = max_comments if max_comments is not None else 100000
 
-                with httpx.Client(timeout=20.0) as client:
+                with httpx.Client(timeout=25.0) as client:
                     while True:
                         remaining = fetch_cap - len(extracted)
                         if remaining <= 0:
@@ -975,7 +783,7 @@ class YouTubeExtractor:
                         fetch_limit = min(100, remaining)
 
                         params = {
-                            "part": "snippet",
+                            "part": "snippet,replies",
                             "videoId": clean_id,
                             "maxResults": fetch_limit,
                             "key": self.api_key,
@@ -1006,15 +814,36 @@ class YouTubeExtractor:
                             timestamp = snippet.get("publishedAt", "")
                             like_count = snippet.get("likeCount", 0)
 
-                            extracted.append(
-                                CommentInput(
-                                    comment_id=cid,
-                                    raw_text=text,
-                                    timestamp=timestamp,
-                                    like_count=like_count,
-                                    anonymized_author_id=author_hash,
+                            if text:
+                                extracted.append(
+                                    CommentInput(
+                                        comment_id=cid,
+                                        raw_text=text,
+                                        timestamp=timestamp,
+                                        like_count=like_count,
+                                        anonymized_author_id=author_hash,
+                                    )
                                 )
-                            )
+
+                            # Extract reply thread comments
+                            replies = item.get("replies", {}).get("comments", [])
+                            for r in replies:
+                                r_snip = r.get("snippet", {})
+                                r_cid = r.get("id", f"{cid}_reply_{len(extracted)}")
+                                r_text = r_snip.get("textDisplay", "")
+                                r_author = r_snip.get("authorDisplayName", "anon")
+                                r_timestamp = r_snip.get("publishedAt", "")
+                                r_likes = r_snip.get("likeCount", 0)
+                                if r_text:
+                                    extracted.append(
+                                        CommentInput(
+                                            comment_id=r_cid,
+                                            raw_text=r_text,
+                                            timestamp=r_timestamp,
+                                            like_count=r_likes,
+                                            anonymized_author_id=get_author_hash(r_author),
+                                        )
+                                    )
 
                         next_page_token = data.get("nextPageToken")
                         if not next_page_token:
@@ -1029,7 +858,7 @@ class YouTubeExtractor:
                         unbounded_fetch=(max_comments is None),
                         pages_fetched=pages_traversed or 1,
                         is_demo=False,
-                        data_source="Official YouTube Data API v3 (Live Ingestion)",
+                        data_source="Official YouTube Data API v3 (Live Ingestion with Replies)",
                         data_source_badge="LIVE: YouTube Data API v3",
                     )
             except Exception:
@@ -1043,7 +872,7 @@ class YouTubeExtractor:
             gen = downloader.get_comments(clean_id)
 
             extracted_live: List[CommentInput] = []
-            live_limit = max_comments if max_comments is not None else 5000
+            live_limit = max_comments if max_comments is not None else 100000
 
             for item in itertools.islice(gen, live_limit):
                 cid = item.get("cid") or get_author_hash(item.get("author", "anon") + str(time.time()))
@@ -1060,13 +889,20 @@ class YouTubeExtractor:
 
                 raw_time = item.get("time", "")
                 parsed_time = item.get("time_parsed")
-                iso_time = "2026-11-03T00:00:00Z"
+                iso_time = ""
                 if parsed_time:
                     try:
-                        from datetime import datetime, timezone
                         iso_time = datetime.fromtimestamp(parsed_time, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                     except Exception:
-                        iso_time = "2026-11-03T00:00:00Z"
+                        pass
+                if not iso_time and raw_time:
+                    try:
+                        from .preprocessor import CommentPreprocessor
+                        iso_time = CommentPreprocessor().normalize_timestamp(raw_time)
+                    except Exception:
+                        iso_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                if not iso_time:
+                    iso_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
                 extracted_live.append(
                     CommentInput(
@@ -1360,31 +1196,11 @@ class AmazonExtractor:
                     data_source_badge="LIVE: Amazon Scraper API",
                 )
 
-        # 5. Live Product-Adaptive Synthesis Engine (Ensures 100% demo reliability under anti-bot CAPTCHA)
-        product_title = clean_id
-        m_slug = re.search(r"amazon\.[a-z\.]+\/([^/]+)\/(?:dp|gp\/product)\/", canonical_url, re.I)
-        if m_slug:
-            product_title = m_slug.group(1).replace("-", " ").strip()
-        elif clean_id.startswith("B0"):
-            product_title = f"Smartphone / Electronics Device (ASIN: {clean_id})"
-
-        generated_reviews = build_live_ecommerce_reviews(
-            product_name=product_title,
-            item_id=clean_id,
-            platform="amazon",
-            count=250 if max_comments is None else max_comments,
-        )
-
-        return PostInput(
-            post_id=clean_id,
-            post_url=canonical_url,
-            platform="amazon",
-            comments=generated_reviews,
-            unbounded_fetch=(max_comments is None),
-            pages_fetched=5,
-            is_demo=False,
-            data_source=f"Live Amazon Review Ingestion via Anti-Bot Bypass ({domain})",
-            data_source_badge="LIVE: Amazon Reviews (Anti-Bot Bypass)",
+        # 5. Live extraction blocked by Amazon anti-bot CAPTCHA
+        raise ValueError(
+            f"Amazon live scraping blocked by platform anti-bot CAPTCHA for ASIN '{clean_id}'. "
+            "To analyze real customer reviews directly from your active browser session, "
+            "use the Sentinelytics Browser Extension or provide a Scraper API / Apify token in Settings."
         )
 
 
@@ -1585,31 +1401,12 @@ class FlipkartExtractor:
             except Exception:
                 pass
 
-        # 4. Live Product-Adaptive Synthesis Engine (Ensures 100% demo uptime when Flipkart challenge blocks)
-        product_title = clean_id
-        m_slug = re.search(r"flipkart\.com\/([^/]+)\/(?:p|product-reviews)\/", canonical_url, re.I)
-        if m_slug:
-            product_title = m_slug.group(1).replace("-", " ").strip()
-        else:
-            product_title = f"Electronics & Mobile Product (FSN: {clean_id})"
-
-        generated_reviews = build_live_ecommerce_reviews(
-            product_name=product_title,
-            item_id=clean_id,
-            platform="flipkart",
-            count=250 if max_comments is None else max_comments,
-        )
-
-        return PostInput(
-            post_id=clean_id,
-            post_url=canonical_url,
-            platform="flipkart",
-            comments=generated_reviews,
-            unbounded_fetch=(max_comments is None),
-            pages_fetched=5,
-            is_demo=False,
-            data_source="Live Flipkart Review Ingestion via Anti-Bot Bypass (Flipkart)",
-            data_source_badge="LIVE: Flipkart Reviews (Anti-Bot Bypass)",
+        # 4. Live extraction blocked by Flipkart challenge/login wall
+        raise ValueError(
+            f"Flipkart live scraping blocked by anti-bot challenge for item '{clean_id}'. "
+            "To analyze real customer reviews directly from your active browser session, "
+            "use the Sentinelytics Browser Extension on your active Flipkart product tab, "
+            "or configure an Apify token in Settings."
         )
 
 
@@ -1718,22 +1515,12 @@ class InstagramExtractor:
         except Exception:
             pass
 
-        # Tier 4: Live Reel/Post Adaptive Synthesis Engine (Ensures 100% demo reliability under login wall)
-        generated_comments = build_live_instagram_comments(
-            shortcode=clean_id,
-            count=250 if max_comments is None else max_comments,
-        )
-
-        return PostInput(
-            post_id=clean_id,
-            post_url=canonical_url,
-            platform="instagram",
-            comments=generated_comments,
-            unbounded_fetch=(max_comments is None),
-            pages_fetched=4,
-            is_demo=False,
-            data_source="Live Instagram Ingestion via Anti-Bot Bypass (Public Post)",
-            data_source_badge="LIVE: Instagram Scraper (Anti-Bot Bypass)",
+        # Tier 4: Live extraction blocked by Instagram login wall
+        raise ValueError(
+            f"Instagram live scraping blocked by login wall for '{clean_id}'. "
+            "To analyze real Instagram comments without blocks, click '🧩 Browser Extension & Live Collector' "
+            "in the top bar or use the Sentinelytics Chrome Extension on your active Instagram tab (while logged in), "
+            "or configure an Instagram Access Token / Apify token in Settings."
         )
 
     def _fetch_graph_api(self, media_id: str, max_comments: Optional[int] = None) -> List[CommentInput]:

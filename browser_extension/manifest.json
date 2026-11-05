@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Sentinelytics - Live Review & Comment Collector",
+  "version": "2.0.0",
+  "description": "Extract 100% authentic, live comments and customer reviews from YouTube, Instagram, Flipkart, and Amazon directly into your Sentinelytics dashboard.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://*.instagram.com/*",
+    "*://*.flipkart.com/*",
+    "*://*.amazon.in/*",
+    "*://*.amazon.com/*",
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Sentinelytics Collector"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://*.instagram.com/*",
+        "*://*.flipkart.com/*",
+        "*://*.amazon.in/*",
+        "*://*.amazon.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

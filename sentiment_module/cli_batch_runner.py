@@ -108,6 +108,8 @@ def run_platform_batch(
         tier2_breakdowns,
         high_negative_alert,
         star_breakdown,
+        star_rating_distribution,
+        keyword_frequencies,
     ) = nlp_engine.process_all_comments(
         preprocessed_items,
         model_option=model_option,
@@ -141,6 +143,8 @@ def run_platform_batch(
         unbounded_fetch=post_input.unbounded_fetch,
         pages_fetched=post_input.pages_fetched,
         star_rating_breakdown=star_breakdown,
+        star_rating_distribution=star_rating_distribution,
+        keyword_frequencies=keyword_frequencies,
     )
     cache_path = cache_mgr.save_report(report)
     print(f"  [4/5] Pre-computed summary saved atomically to: {cache_path.name}")

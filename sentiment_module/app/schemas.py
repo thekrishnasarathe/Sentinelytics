@@ -3,7 +3,7 @@ Pydantic data schemas for inputs, comments, classification models, and cached re
 Supports Social Media (YouTube, Instagram) and E-Commerce (Amazon, Flipkart).
 """
 
-from typing import List, Optional, Literal, Dict
+from typing import List, Optional, Literal, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -60,6 +60,21 @@ class AnalyzeRequest(BaseModel):
     apify_api_token: Optional[str] = Field(default=None, description="Optional Apify API token")
     instagram_access_token: Optional[str] = Field(default=None, description="Optional Instagram access token")
     scraper_api_key: Optional[str] = Field(default=None, description="Optional Scraper API key for Amazon/Flipkart")
+
+
+class BrowserIngestRequest(BaseModel):
+    post_url: str = Field(..., description="Public link of the post or product page")
+    post_id: str = Field(..., description="Unique post ID, ASIN, FSN, or video ID")
+    title: Optional[str] = Field(default=None, description="Title of the video or product")
+    platform: Literal["youtube", "instagram", "amazon", "flipkart"] = Field(
+        default="youtube",
+        description="Platform: youtube, instagram, amazon, flipkart"
+    )
+    comments: List[CommentInput] = Field(..., description="List of scraped comments/reviews from browser extension")
+    model_option: Literal["vader_hybrid", "xlm_roberta", "gemini_flash"] = Field(
+        default="vader_hybrid",
+        description="Sentiment model backend"
+    )
 
 
 class ProcessedComment(BaseModel):
@@ -120,6 +135,14 @@ class CachedReport(BaseModel):
     star_rating_breakdown: Optional[Dict[str, int]] = Field(
         default=None,
         description="1 to 5 star rating distribution for e-commerce reviews"
+    )
+    star_rating_distribution: Optional[Dict[str, Dict[str, int]]] = Field(
+        default=None,
+        description="1 to 5 star rating distribution segmented by sentiment ({'5': {'Positive': 120, 'Neutral': 5, 'Negative': 2}, ...})"
+    )
+    keyword_frequencies: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Dynamic keyword counts for issue & praise breakdown (e.g. [{'keyword': 'crash', 'count': 42, 'sentiment': 'Negative'}])"
     )
     is_demo: bool = Field(
         default=False,
