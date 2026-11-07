@@ -149,57 +149,214 @@
   }
 
   // =========================================================================
-  // 2. Instagram Extractor (Text-Anchor & Username Anchor DOM Walking)
+  // 2. Turbo Instagram Extractor (Internal Logged-in API + Scoped Scroller)
   // =========================================================================
-  function extractInstagramComments() {
-    // Strategy A: Find all elements with dir="auto" inside article / dialog / comment lists
-    const candidateNodes = document.querySelectorAll(
-      "span[dir='auto'], div[dir='auto'], ul li span"
-    );
+  let currentActiveShortcode = null;
 
-    const blacklist = new Set([
-      "Reply", "See translation", "View more comments", "View replies", "Liked by",
-      "Follow", "Following", "Log In", "Sign Up", "Share", "Embed", "Report", "Cancel"
-    ]);
+  function getActiveInstagramShortcode() {
+    // 1. Check window pathname: /p/SHORTCODE, /reel/SHORTCODE, /tv/SHORTCODE
+    const match = window.location.pathname.match(/\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/);
+    if (match) return match[1];
 
-    candidateNodes.forEach((node, idx) => {
-      const text = node.textContent.trim();
-      if (!text || text.length < 3 || blacklist.has(text)) return;
-      if (text.startsWith("View all") && text.endsWith("comments")) return;
+    // 2. Check modal dialog if open
+    const dialog = document.querySelector('div[role="dialog"]');
+    if (dialog) {
+      const modalLink = dialog.querySelector('a[href*="/p/"], a[href*="/reel/"]');
+      if (modalLink) {
+        const m = modalLink.getAttribute('href').match(/\/(?:p|reel)\/([A-Za-z0-9_-]+)/);
+        if (m) return m[1];
+      }
+    }
+    return null;
+  }
 
-      // Ensure it's in a comment-like structure (has nearby user link or time)
-      const parentRow = node.closest("li") || node.closest("div[role='button']") || node.closest("div.x9f619") || node.parentElement;
-      if (!parentRow) return;
+  function shortcodeToMediaId(shortcode) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    let id = BigInt(0);
+    for (const ch of shortcode) {
+      const idx = alphabet.indexOf(ch);
+      if (idx === -1) continue;
+      id = id * BigInt(64) + BigInt(idx);
+    }
+    return id.toString();
+  }
 
-      const userLink = parentRow.querySelector("a[href^='/'][role='link'], h2 a, h3 a, a._a6hd");
-      const timeElem = parentRow.querySelector("time");
+  const IG_METADATA_REGEX = /^(\d+[smhdwy]|Reply|See translation|Hide replies|View all \d+ replies|Original audio|AI content|\d[\d,]* likes?|Edited|Liked by creator|Verified)$/i;
 
-      // Valid comment node has either a time tag or nearby username link
-      if (userLink || timeElem || parentRow.querySelector("svg[aria-label*='Like']")) {
-        const author = userLink ? userLink.textContent.trim() : `ig_user_${idx}`;
-        const timeStr = timeElem ? (timeElem.getAttribute("datetime") || timeElem.textContent.trim()) : "recently";
+  function addInstagramJsonComment(c) {
+    if (!c || !c.text) return;
+    const author = c.user?.username || "instagram_user";
+    const rawText = c.text.trim();
+    if (!rawText || IG_METADATA_REGEX.test(rawText)) return;
+    const timeStr = c.created_at ? new Date(c.created_at * 1000).toISOString() : new Date().toISOString();
+    const likes = c.comment_like_count || 0;
+    const dedupeKey = `${author}::${rawText}`;
+    if (!state.collectedCommentsMap.has(dedupeKey)) {
+      const cid = `ig_${c.pk || hashString(dedupeKey)}`;
+      state.collectedCommentsMap.set(dedupeKey, {
+        comment_id: cid,
+        raw_text: rawText,
+        timestamp: timeStr,
+        like_count: likes,
+        anonymized_author_id: hashString(author),
+        author: author,
+        star_rating: null,
+        verified_purchase: null,
+        platform: "instagram"
+      });
+    }
 
-        const cid = `ig_${hashString(author + text.substring(0, 35))}`;
-        if (!state.collectedCommentsMap.has(cid)) {
-          state.collectedCommentsMap.set(cid, {
-            comment_id: cid,
-            raw_text: text,
-            timestamp: timeStr,
-            like_count: 0,
-            anonymized_author_id: hashString(author),
-          });
+    if (Array.isArray(c.preview_child_comments)) {
+      c.preview_child_comments.forEach(reply => {
+        addInstagramJsonComment(reply);
+      });
+    }
+  }
+
+  let isFetchingApi = false;
+  async function fetchInstagramCommentsViaApi(shortcode, maxPages = 50) {
+    if (isFetchingApi) return state.collectedCommentsMap.size;
+    isFetchingApi = true;
+    const mediaId = shortcodeToMediaId(shortcode);
+    let nextMinId = null;
+    let pageCount = 0;
+    let hasMore = true;
+
+    const csrfMatch = document.cookie.match(/csrftoken=([^;]+)/);
+    const csrfToken = csrfMatch ? csrfMatch[1] : "";
+
+    const headers = {
+      "x-ig-app-id": "936619743392459",
+      "x-requested-with": "XMLHttpRequest",
+      "accept": "*/*"
+    };
+    if (csrfToken) headers["x-csrftoken"] = csrfToken;
+
+    try {
+      while (hasMore && pageCount < maxPages && state.isAutoScrolling) {
+        pageCount++;
+        let url = `https://www.instagram.com/api/v1/media/${mediaId}/comments/?can_support_threading=true&permalink_enabled=false`;
+        if (nextMinId) {
+          url += `&min_id=${encodeURIComponent(nextMinId)}`;
         }
+
+        const res = await fetch(url, { headers, credentials: "include" });
+        if (!res.ok) {
+          console.warn("[Sentinelytics] Instagram comments API status:", res.status);
+          break;
+        }
+
+        const data = await res.json();
+        const comments = data.comments || [];
+        if (comments.length === 0) break;
+
+        comments.forEach(c => addInstagramJsonComment(c));
+        updateFloatingPillCounter();
+
+        nextMinId = data.next_min_id;
+        hasMore = Boolean(data.has_more_comments && nextMinId);
+
+        await new Promise(r => setTimeout(r, 120));
+      }
+    } catch (err) {
+      console.warn("[Sentinelytics] Instagram API fetch error:", err);
+    } finally {
+      isFetchingApi = false;
+    }
+
+    return state.collectedCommentsMap.size;
+  }
+
+  function extractInstagramComments() {
+    const shortcode = getActiveInstagramShortcode();
+
+    // If on a profile grid without any post or reel open, do not extract anything from profile page!
+    if (!shortcode) {
+      return 0;
+    }
+
+    // If shortcode changed, reset map
+    if (currentActiveShortcode !== shortcode) {
+      currentActiveShortcode = shortcode;
+      state.collectedCommentsMap.clear();
+    }
+
+    // Method B: Scoped DOM Extraction strictly inside dialog/article
+    const scope = document.querySelector('div[role="dialog"]') ||
+                  document.querySelector('main article') ||
+                  document.querySelector('article');
+    if (!scope) return state.collectedCommentsMap.size;
+
+    const ownerLink = scope.querySelector('header a[href^="/"], h2 a[href^="/"], a._a6hd');
+    const ownerUsername = ownerLink ? ownerLink.textContent.trim().toLowerCase().replace('@', '') : null;
+
+    const rows = scope.querySelectorAll('ul li, div.x9f619 > div.x78zum5.xdt5ytf');
+    let isFirstRow = true;
+
+    rows.forEach(row => {
+      const userLink = row.querySelector('a[href^="/"][role="link"], h3 a[href^="/"], a[href^="/"]');
+      const timeElem = row.querySelector('time');
+
+      if (!userLink || !timeElem) return;
+
+      const author = userLink.textContent.trim().replace('@', '');
+      if (!author) return;
+
+      if (isFirstRow && ownerUsername && author.toLowerCase() === ownerUsername) {
+        isFirstRow = false;
+        return;
+      }
+      isFirstRow = false;
+
+      const textSpans = row.querySelectorAll('span[dir="auto"]');
+      let commentText = "";
+      for (const span of textSpans) {
+        if (span.closest('a') || span.closest('button') || span.closest('svg')) continue;
+        const txt = span.textContent.trim();
+        if (!txt || txt.length < 1) continue;
+        if (IG_METADATA_REGEX.test(txt)) continue;
+        if (txt.toLowerCase() === author.toLowerCase()) continue;
+        commentText = txt;
+        break;
+      }
+
+      if (!commentText || IG_METADATA_REGEX.test(commentText)) return;
+
+      const timeStr = timeElem.getAttribute('datetime') || timeElem.textContent.trim();
+      const dedupeKey = `${author}::${commentText}`;
+
+      if (!state.collectedCommentsMap.has(dedupeKey)) {
+        const cid = `ig_${hashString(dedupeKey)}`;
+        state.collectedCommentsMap.set(dedupeKey, {
+          comment_id: cid,
+          raw_text: commentText,
+          timestamp: timeStr,
+          like_count: 0,
+          anonymized_author_id: hashString(author),
+          author: author,
+          star_rating: null,
+          verified_purchase: null,
+          platform: "instagram"
+        });
       }
     });
 
-    // Auto-click "Load more comments" or "+" buttons to expand feed
-    const buttons = document.querySelectorAll("button, span[role='button'], svg[aria-label*='comments']");
+    const buttons = scope.querySelectorAll('button, span[role="button"], div[role="button"]');
     buttons.forEach((btn) => {
       const txt = btn.textContent.toLowerCase();
-      if (txt.includes("load more") || txt.includes("view more comments") || txt.includes("view replies")) {
+      if (
+        txt.includes("load more") ||
+        txt.includes("view more comments") ||
+        txt.includes("view replies") ||
+        txt.includes("more replies") ||
+        txt.includes("view all")
+      ) {
         try { btn.click(); } catch (_) {}
       }
     });
+
+    updateFloatingPillCounter();
+    return state.collectedCommentsMap.size;
   }
 
   // =========================================================================
@@ -591,27 +748,42 @@
   // =========================================================================
   // 6. Auto-Scroll Loop
   // =========================================================================
+  function updateFloatingPillCounter() {
+    const badge = document.getElementById("s2-comment-counter");
+    if (badge) {
+      badge.textContent = state.collectedCommentsMap.size;
+    }
+  }
+
   function startAutoScroll() {
     if (state.isAutoScrolling) return;
     state.isAutoScrolling = true;
 
-    state.scrollInterval = setInterval(() => {
-      const platform = detectPlatform();
-      runExtraction();
-
-      // Scroll window down smoothly
-      window.scrollBy({ top: 900, behavior: "smooth" });
-
-      // Special Instagram comments container scroll if dialog is open
-      if (platform === "instagram") {
-        const scrollContainers = document.querySelectorAll(
-          "div.x5yr21d, div[role='dialog'] div.x78zum5, div._a9ym"
-        );
-        scrollContainers.forEach((c) => {
-          c.scrollTop += 600;
-        });
+    const platform = detectPlatform();
+    if (platform === "instagram") {
+      const sc = getActiveInstagramShortcode();
+      if (sc) {
+        // Method A: Turbo fetch via logged-in internal Instagram API
+        fetchInstagramCommentsViaApi(sc);
       }
-    }, 1100);
+
+      // Method B: Rapid 120ms scoped DOM scroll
+      state.scrollInterval = setInterval(() => {
+        runExtraction();
+        const scope = document.querySelector('div[role="dialog"]') || document.querySelector('article') || document.body;
+        const containers = scope.querySelectorAll("div.x5yr21d, div[role='dialog'] div.x78zum5, div._a9ym, ul");
+        containers.forEach((c) => {
+          if (c.scrollHeight > c.clientHeight + 40) {
+            c.scrollTop = c.scrollHeight;
+          }
+        });
+      }, 120);
+    } else {
+      state.scrollInterval = setInterval(() => {
+        runExtraction();
+        window.scrollBy({ top: 900, behavior: "smooth" });
+      }, 700);
+    }
   }
 
   function stopAutoScroll() {
@@ -756,17 +928,44 @@
       const textElem = pill.querySelector(".s2-text");
       const iconElem = pill.querySelector(".s2-icon");
       const prevText = textElem.textContent;
+
+      if (platform === "instagram") {
+        const sc = getActiveInstagramShortcode();
+        if (!sc) {
+          textElem.textContent = "Open any Post or Reel first!";
+          setTimeout(() => { textElem.textContent = prevText; }, 3000);
+          return;
+        }
+      }
+
+      // Stop scrolling during sync
+      stopAutoScroll();
+
       textElem.textContent = "Extracting & Analyzing...";
       iconElem.className = "s2-loading";
 
       try {
+        if (platform === "instagram") {
+          const sc = getActiveInstagramShortcode();
+          if (sc && state.collectedCommentsMap.size < 50) {
+            // Rapid API fetch if few collected so far
+            state.isAutoScrolling = true;
+            await fetchInstagramCommentsViaApi(sc, 10);
+            state.isAutoScrolling = false;
+          }
+        }
+
         runExtraction();
         const comments = Array.from(state.collectedCommentsMap.values());
         const meta = detectPostIdAndTitle(platform);
+        let cleanPostId = meta.postId;
+        if (platform === "instagram") {
+          cleanPostId = getActiveInstagramShortcode() || cleanPostId;
+        }
 
         const payload = {
           post_url: window.location.href,
-          post_id: meta.postId,
+          post_id: cleanPostId,
           title: meta.title,
           platform: platform,
           comments: comments.length > 0 ? comments : [],
@@ -784,12 +983,21 @@
         }
 
         const data = await res.json();
+        const finalId = data.post_id || cleanPostId;
         textElem.textContent = `Analyzed (${data.total_valid_comments || comments.length})!`;
         iconElem.className = "s2-icon";
         iconElem.textContent = "✅";
 
-        const dashboardUrl = `http://localhost:8000/?post_id=${encodeURIComponent(data.post_id || meta.postId)}`;
-        window.open(dashboardUrl, "_blank");
+        const dashboardUrl = `http://localhost:3000/?post_id=${encodeURIComponent(finalId)}`;
+        try {
+          chrome.runtime.sendMessage({ action: "OPEN_DASHBOARD", url: dashboardUrl }, () => {
+            if (chrome.runtime.lastError) {
+              window.open(dashboardUrl, "_blank");
+            }
+          });
+        } catch (_) {
+          window.open(dashboardUrl, "_blank");
+        }
 
         setTimeout(() => {
           textElem.textContent = prevText;
@@ -809,13 +1017,24 @@
 
     document.body.appendChild(pill);
 
-    // Periodic badge update
+    // Dynamic label and counter sync on Instagram
     setInterval(() => {
       const badge = document.getElementById("s2-comment-counter");
+      const textElem = pill.querySelector(".s2-text");
+      if (platform === "instagram") {
+        const sc = getActiveInstagramShortcode();
+        if (!sc && textElem && !textElem.textContent.includes("Extracting")) {
+          textElem.textContent = "Open any Post or Reel to collect";
+          if (badge) badge.style.display = "none";
+        } else if (sc && textElem && textElem.textContent === "Open any Post or Reel to collect") {
+          textElem.textContent = "Analyze with Sentinelytics";
+          if (badge) badge.style.display = "inline-block";
+        }
+      }
       if (badge) {
         badge.textContent = state.collectedCommentsMap.size;
       }
-    }, 2000);
+    }, 1200);
   }
 
   // Inject floating pill button if on a supported page

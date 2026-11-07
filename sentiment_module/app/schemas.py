@@ -58,6 +58,10 @@ class AnalyzeRequest(BaseModel):
         default=None,
         description="Direct custom comments list payload from extension or manual injection"
     )
+    use_cache: bool = Field(
+        default=True,
+        description="Whether to return cached report if available"
+    )
     unbounded_fetch: bool = Field(default=True, description="Whether to fetch all available comments without cap limit")
     is_demo: bool = Field(default=False, description="True if explicitly requesting the demo preset dataset")
     # Runtime optional API Keys from UI modal
@@ -201,6 +205,14 @@ class CachedReport(BaseModel):
     overall_subjectivity_score: Optional[float] = Field(
         default=0.62,
         description="Aggregated subjective vs objective comment ratio (0.0 to 1.0)"
+    )
+    status: Optional[str] = Field(
+        default="ok",
+        description="Execution status indicator ('ok', 'success', etc.)"
+    )
+    redirect_url: Optional[str] = Field(
+        default=None,
+        description="Direct link to view this report in the web dashboard"
     )
 
 

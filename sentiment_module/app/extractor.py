@@ -158,8 +158,12 @@ def parse_input_url_or_id(raw_input: str, default_platform: str = "youtube") -> 
     if len(raw) == 10 and raw.isalnum() and raw.upper().startswith("B0"):
         return raw.upper(), "amazon", f"https://www.amazon.in/dp/{raw.upper()}"
 
+    # If platform is explicitly specified as instagram, preserve shortcode
+    if default_platform == "instagram" and re.match(r"^[A-Za-z0-9_-]+$", raw):
+        return raw, "instagram", f"https://www.instagram.com/p/{raw}/"
+
     # Standalone YouTube Video ID (11 characters)
-    if len(raw) == 11 and re.match(r"^[\w-]+$", raw):
+    if default_platform == "youtube" and len(raw) == 11 and re.match(r"^[\w-]+$", raw):
         return raw, "youtube", f"https://www.youtube.com/watch?v={raw}"
 
     # Default fallback
@@ -2137,38 +2141,20 @@ class InstagramExtractor:
         except Exception:
             pass
 
-        # Tier 4: Live extraction blocked by Instagram login wall
+        # Tier 4: Live extraction blocked by Instagram login wall (Zero fake comments)
         if fallback_on_blocked:
-            sample_candidates = [
-                Path("sample_data/youtube_flagged_post.json"),
-                Path("sentiment_module/sample_data/youtube_flagged_post.json"),
-                Path(__file__).resolve().parent.parent / "sample_data" / "youtube_flagged_post.json",
-            ]
-            sample_file = next((p for p in sample_candidates if p.exists()), None)
-            if not sample_file:
-                sample_file = Path("sample_data/youtube_flagged_post.json")
-                generate_realistic_flagged_dataset(sample_file)
-
-            with open(sample_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            raw_list = data["comments"]
-            if max_comments is not None:
-                raw_list = raw_list[:max_comments]
-
-            comments = [CommentInput(**c) for c in raw_list]
             return PostInput(
                 post_id=clean_id,
                 post_url=canonical_url,
                 platform="instagram",
-                comments=comments,
+                comments=[],
                 unbounded_fetch=(max_comments is None),
                 pages_fetched=1,
                 is_demo=False,
-                data_source="Fallback Benchmark Dataset (Instagram Direct Scrape Blocked by Login Wall)",
-                data_source_badge="BENCHMARK PRESET (CAPTCHA DETECTED)",
-                platform_reported_total=len(comments),
-                warning_message="⚠️ Platform Anti-Bot CAPTCHA detected on direct server request — Showing Benchmark Dataset (Use the Sentinelytics Chrome Extension on the open tab to push 100% live browser comments)",
+                data_source="Instagram Direct Scraper (Blocked by Login Wall)",
+                data_source_badge="LOGIN REQUIRED (USE BROWSER EXTENSION)",
+                platform_reported_total=0,
+                warning_message="Instagram requires browser login — Click the purple '⚡ Analyze with Sentinelytics' button directly on your open Instagram tab to push 100% real comments.",
             )
 
         raise ValueError(

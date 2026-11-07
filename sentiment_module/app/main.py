@@ -5,6 +5,7 @@ and sub-second export streaming for Social Media (YouTube, Instagram) and E-Comm
 """
 
 import os
+import re
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
@@ -87,11 +88,29 @@ exporter = ExporterEngine(cache_manager=cache_mgr, exports_dir=EXPORTS_DIR)
 def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
     """Core analysis orchestrator: Parse URL -> Extract -> 4-Step Preprocess -> 2-Tier NLP -> Cache & SQLite."""
     raw_input = request.post_id or request.post_url or "yt_demo_72neg"
-    clean_id, detected_platform, canonical_url = parse_url_and_detect_platform(raw_input)
+    clean_id, detected_platform, canonical_url = parse_url_and_detect_platform(raw_input, default_platform=request.platform or "youtube")
 
     platform = (request.platform or detected_platform or "youtube").lower()
     post_url = request.post_url or canonical_url
     is_demo = request.is_demo or (clean_id in DEMO_POST_IDS and not request.post_url and "http" not in raw_input)
+
+    # Check if a real browser-ingested report already exists in cache or SQLite for clean_id or raw_input
+    existing_cached = cache_mgr.load_report(clean_id) or history_db.get_report_by_id(clean_id)
+    if not existing_cached and raw_input != clean_id:
+        existing_cached = cache_mgr.load_report(raw_input) or history_db.get_report_by_id(raw_input)
+
+    is_browser_ingested = False
+    if existing_cached:
+        badge_str = f"{existing_cached.data_source_badge or ''} {existing_cached.data_source or ''} {existing_cached.model_used or ''}"
+        if any(k in badge_str for k in ("Browser Extension", "Custom Ingestion", "LIVE: Browser Extension", "Verified")):
+            is_browser_ingested = True
+
+    custom_input = request.custom_comments or request.comments
+
+    # If cached report was ingested via browser extension and request has no new custom comments:
+    if (not custom_input or len(custom_input) == 0) and is_browser_ingested and existing_cached:
+        if getattr(request, "use_cache", True) and existing_cached.sample_comments and len(existing_cached.sample_comments) > 0:
+            return existing_cached
 
     # Step A: Comment & Review Extraction (Keyless Live Scraper, Custom Comments, or Smart Fallback)
     pages_fetched = 1
@@ -101,12 +120,30 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
     platform_reported_total: Optional[int] = None
     warning_message: Optional[str] = None
 
-    custom_input = request.custom_comments or request.comments
     if custom_input and len(custom_input) > 0:
         raw_comments = custom_input
         data_source = "User / Extension Provided Comments Payload"
         data_source_badge = "USER: Custom Ingestion"
         platform_reported_total = len(custom_input)
+    elif is_browser_ingested and existing_cached and existing_cached.sample_comments and len(existing_cached.sample_comments) > 0:
+        # Re-use authentic comments from the existing browser-ingested report instead of overwriting with synthetic fallback!
+        raw_comments = [
+            CommentInput(
+                comment_id=c.comment_id,
+                raw_text=c.raw_text,
+                anonymized_author_id=c.anonymized_author_id,
+                timestamp=c.timestamp,
+                like_count=c.like_count,
+                star_rating=c.star_rating,
+                verified_purchase=c.verified_purchase,
+            )
+            for c in existing_cached.sample_comments
+        ]
+        data_source = existing_cached.data_source or "Live Ingestion via Sentinelytics Browser Extension"
+        data_source_badge = existing_cached.data_source_badge or "LIVE: Browser Extension (Verified)"
+        platform_reported_total = existing_cached.total_valid_comments or len(raw_comments)
+        post_url = existing_cached.post_url or post_url
+        is_demo = False
     elif platform == "youtube":
         extractor = YouTubeExtractor(api_key=request.youtube_api_key)
         post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
@@ -417,10 +454,22 @@ async def ingest_browser(request: BrowserIngestRequest, background_tasks: Backgr
             detail="No comments provided in browser payload. Ensure comments are rendered on the active tab."
         )
 
+    raw_target = request.post_url or request.post_id
     clean_id, detected_platform, canonical_url = parse_url_and_detect_platform(
-        request.post_url or request.post_id
+        raw_target, default_platform=request.platform
     )
     platform = (request.platform or detected_platform or "youtube").lower()
+
+    # Normalize Instagram clean shortcode
+    if platform == "instagram" or "instagram.com" in raw_target or "/p/" in raw_target or "/reel/" in raw_target or "/tv/" in raw_target:
+        platform = "instagram"
+        m = re.search(r"/(?:p|reel|tv)/([A-Za-z0-9_-]+)", raw_target)
+        if m:
+            clean_id = m.group(1)
+        elif request.post_id and "/" not in request.post_id and len(request.post_id) < 50:
+            clean_id = request.post_id.strip()
+        canonical_url = f"https://www.instagram.com/p/{clean_id}/"
+
     post_url = request.post_url or canonical_url
     post_id = clean_id or request.post_id
 
@@ -430,6 +479,7 @@ async def ingest_browser(request: BrowserIngestRequest, background_tasks: Backgr
         platform=platform,
         model_option=request.model_option,
         comments=request.comments,
+        custom_comments=request.comments,
         unbounded_fetch=True,
         is_demo=False,
     )
@@ -439,7 +489,12 @@ async def ingest_browser(request: BrowserIngestRequest, background_tasks: Backgr
         # Update badge to reflect browser extension provenance
         report.data_source = "Live Ingestion via Sentinelytics Browser Extension"
         report.data_source_badge = "LIVE: Browser Extension (Verified)"
+        report.status = "ok"
+        report.redirect_url = f"http://localhost:3000/?post_id={report.post_id}"
+
+        # Dual save to atomic JSON cache and SQLite history
         cache_mgr.save_report(report)
+        history_db.save_report_to_db(report)
 
         # Pre-warm CSV & PDF exports
         background_tasks.add_task(exporter.export_to_csv, report.post_id)
@@ -459,6 +514,8 @@ async def get_cached_report(post_id: str):
     """
     clean_id, detected_platform, _ = parse_url_and_detect_platform(post_id)
     report = cache_mgr.load_report(clean_id) or history_db.get_report_by_id(clean_id)
+    if not report and post_id != clean_id:
+        report = cache_mgr.load_report(post_id) or history_db.get_report_by_id(post_id)
     if not report:
         req = AnalyzeRequest(post_id=clean_id, platform=detected_platform, is_demo=(clean_id in DEMO_POST_IDS))
         report = execute_analysis_pipeline(req)

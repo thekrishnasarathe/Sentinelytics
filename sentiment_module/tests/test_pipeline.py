@@ -784,3 +784,63 @@ def test_universal_ecommerce_and_expanded_platforms():
     assert len(post_data.comments) == 50
     assert post_data.platform == "myntra"
     assert any("dress" in c.raw_text.lower() or "fabric" in c.raw_text.lower() or "fit" in c.raw_text.lower() for c in post_data.comments)
+
+
+@pytest.mark.anyio
+async def test_instagram_browser_ingestion_and_no_overwrite():
+    """
+    Verify Instagram Browser Ingestion & Anti-Overwrite Protection:
+    - Ingesting 500 comments for https://www.instagram.com/p/DFc6yh2NpZX/?hl=en normalizes post_id to DFc6yh2NpZX
+    - GET /api/report/DFc6yh2NpZX returns real browser comments with Verified badge
+    - POST /api/analyze with post_id=DFc6yh2NpZX preserves real comments and never overwrites with synthetic data
+    """
+    from app.main import ingest_browser, get_cached_report, analyze_post
+    from app.schemas import BrowserIngestRequest, CommentInput, AnalyzeRequest
+    from fastapi import BackgroundTasks
+
+    shortcode = "DFc6yh2NpZX"
+    test_url = f"https://www.instagram.com/p/{shortcode}/?hl=en"
+
+    comments = [
+        CommentInput(
+            comment_id=f"ig_real_{i}",
+            raw_text=f"Authentic user comment #{i} on Samay reel - timing and comedy is legendary!",
+            timestamp="2026-11-07T12:00:00Z",
+            like_count=i + 5,
+            anonymized_author_id=f"user_samay_{i}",
+        )
+        for i in range(500)
+    ]
+
+    payload = BrowserIngestRequest(
+        post_url=test_url,
+        post_id=test_url,
+        title="Samay Raina Reel",
+        platform="instagram",
+        comments=comments,
+        model_option="vader_hybrid",
+    )
+
+    bg = BackgroundTasks()
+    ingest_res = await ingest_browser(payload, bg)
+    assert ingest_res.post_id == shortcode
+    assert ingest_res.total_valid_comments == 500
+    assert "Browser Extension" in ingest_res.data_source_badge
+
+    # 1. Test GET /api/report/DFc6yh2NpZX
+    cached_res = await get_cached_report(shortcode)
+    assert cached_res.post_id == shortcode
+    assert cached_res.total_valid_comments == 500
+    assert "Authentic user comment #0" in cached_res.sample_comments[0].raw_text
+
+    # 2. Test POST /api/analyze with DFc6yh2NpZX (without custom_comments payload)
+    analyze_req = AnalyzeRequest(
+        post_id=shortcode,
+        platform="instagram",
+        model_option="vader_hybrid",
+    )
+    analyze_res = await analyze_post(analyze_req, bg)
+    assert analyze_res.post_id == shortcode
+    assert analyze_res.total_valid_comments == 500
+    assert "Authentic user comment #0" in analyze_res.sample_comments[0].raw_text
+    assert "Browser Extension" in analyze_res.data_source_badge

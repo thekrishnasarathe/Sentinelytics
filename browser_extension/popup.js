@@ -167,20 +167,29 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Send to Dashboard Button
   sendToDashboardBtn.addEventListener("click", async () => {
     sendToDashboardBtn.disabled = true;
-    setBanner("Extracting comments from active DOM...", "normal");
+    setBanner("Extracting comments from active session...", "normal");
+
+    // Immediately halt auto-scrolling
+    await sendTabMessage({ action: "STOP_AUTO_SCROLL" });
 
     const resp = await sendTabMessage({ action: "GET_ALL_COMMENTS" });
     if (!resp || !resp.comments || resp.comments.length === 0) {
-      setBanner("No comments found in DOM to send.", "error");
+      setBanner("No comments found to send. Open a post or reel and scroll to collect.", "error");
       sendToDashboardBtn.disabled = false;
       return;
     }
 
     setBanner(`Sending ${resp.comments.length} comments to FastAPI backend...`, "normal");
 
+    let cleanPostId = resp.postId;
+    if (resp.platform === "instagram") {
+      const match = (resp.url || "").match(/\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/);
+      if (match) cleanPostId = match[1];
+    }
+
     const payload = {
       post_url: resp.url,
-      post_id: resp.postId,
+      post_id: cleanPostId,
       title: resp.title,
       platform: resp.platform,
       comments: resp.comments,
@@ -200,11 +209,16 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       const data = await apiRes.json();
-      setBanner(`✅ Analyzed ${data.total_valid_comments} comments! Opening dashboard...`, "success");
+      const finalId = data.post_id || cleanPostId;
+      setBanner(`✅ Analyzed ${data.total_valid_comments || resp.comments.length} comments! Opening dashboard...`, "success");
 
-      // Open dashboard with query param
-      chrome.tabs.create({ url: `${DASHBOARD_URL}/?post_id=${data.post_id}` });
-      window.close();
+      const dashboardUrl = `${DASHBOARD_URL}/?post_id=${encodeURIComponent(finalId)}`;
+      chrome.runtime.sendMessage({ action: "OPEN_DASHBOARD", url: dashboardUrl }, () => {
+        if (chrome.runtime.lastError) {
+          chrome.tabs.create({ url: dashboardUrl });
+        }
+      });
+      setTimeout(() => window.close(), 400);
     } catch (err) {
       setBanner(`Error: ${err.message}`, "error");
       sendToDashboardBtn.disabled = false;

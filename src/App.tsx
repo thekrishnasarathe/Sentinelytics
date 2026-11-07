@@ -172,6 +172,51 @@ export default function App() {
     }
   };
 
+  // Keep track of active report id for polling
+  const activeReportIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeReportIdRef.current = report?.post_id || null;
+  }, [report]);
+
+  // Poll history every 3s to auto-detect new browser-ingested reports
+  useEffect(() => {
+    const pollHistory = () => {
+      const params = new URLSearchParams(window.location.search);
+      const urlPostId = params.get('post_id');
+
+      fetch('/api/history?limit=1')
+        .then((res) => {
+          if (!res.ok) return null;
+          return res.json();
+        })
+        .then((items) => {
+          if (!items || items.length === 0) return;
+          const newest = items[0];
+          if (!newest || !newest.post_id) return;
+
+          const currentId = activeReportIdRef.current;
+          // If URL specifies a post_id or if a new browser extension report was pushed
+          if (
+            (urlPostId && urlPostId === newest.post_id && currentId !== newest.post_id)
+          ) {
+            fetch(`/api/report/${encodeURIComponent(newest.post_id)}`)
+              .then((r) => r.json())
+              .then((rep: CachedReport) => {
+                setReport(rep);
+                setPlatform(rep.platform);
+                setInputTarget(rep.post_id);
+              })
+              .catch(() => {});
+          }
+        })
+        .catch(() => {});
+    };
+
+    const timer = setInterval(pollHistory, 3000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Trigger initial demo on mount or handle URL query param ?post_id=...
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -191,7 +236,8 @@ export default function App() {
           setIsLoading(false);
         })
         .catch(() => {
-          handleExecuteAnalysis(qPostId, 'youtube', 'vader_hybrid', false);
+          setIsLoading(false);
+          setErrorMessage(`Report for "${qPostId}" not found yet. Ingest comments using the Chrome Extension or click Scrape & Analyze.`);
         });
     } else {
       handleExecuteAnalysis('yt_demo_72neg', 'youtube', 'vader_hybrid', true);
