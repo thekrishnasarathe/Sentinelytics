@@ -694,3 +694,93 @@ def test_blocked_live_extractor_raises_value_error():
     ig = InstagramExtractor()
     with pytest.raises(ValueError, match="Instagram live scraping blocked"):
         ig.extract("https://www.instagram.com/p/FAKE1234567/", is_demo=False)
+
+
+def test_deepmoji_emotion_conflict_and_scoring():
+    """Verify 64-Emoji DeepMoji conflict detection, irony flags, confidence & subjectivity."""
+    from app.preprocessor import CommentPreprocessor, DeepMojiEmotionEngine
+
+    cp = CommentPreprocessor()
+
+    # Positive text with negative emojis -> sarcasm & conflict detected
+    sarcastic_conflict = "Great job on the latest update guys 🤡😡👎"
+    res1 = cp.preprocess(sarcastic_conflict)
+    assert res1["irony_sarcasm_detected"] is True
+    assert res1["is_sarcastic"] is True
+
+    # High subjectivity text
+    subj_text = "I personally felt this is the worst and most laggy experience ever!"
+    res2 = cp.preprocess(subj_text)
+    assert res2["subjectivity_score"] >= 0.50
+    assert 0.0 <= res2["confidence_score"] <= 1.0
+
+
+@pytest.mark.anyio
+async def test_sqlite_history_db_and_endpoints():
+    """Verify SQLite sentiment_hub.db saves reports, returns history, and deletes records."""
+    from app.main import get_history, delete_history_item, execute_analysis_pipeline
+    from app.schemas import AnalyzeRequest
+    from app.history_db import HistoryDB
+
+    # Run pipeline for demo post
+    req = AnalyzeRequest(post_id="yt_demo_72neg", is_demo=True)
+    report = execute_analysis_pipeline(req)
+
+    # Check history endpoint returns the saved report
+    history = await get_history(limit=10)
+    assert len(history) > 0
+    found = any(h["post_id"] == "yt_demo_72neg" for h in history)
+    assert found is True
+
+    # Delete test record
+    del_res = await delete_history_item("yt_demo_72neg")
+    assert del_res["success"] is True
+
+
+@pytest.mark.anyio
+async def test_multi_comparison_endpoint():
+    """Verify POST /api/compare computes sentiment deltas and determines winner."""
+    from app.main import compare_posts, execute_analysis_pipeline
+    from app.schemas import CompareRequest, AnalyzeRequest
+
+    # Pre-populate both demo reports
+    execute_analysis_pipeline(AnalyzeRequest(post_id="yt_demo_72neg", is_demo=True))
+    execute_analysis_pipeline(AnalyzeRequest(post_id="amz_smartphone_reviews", is_demo=True))
+
+    payload = CompareRequest(post_id_a="yt_demo_72neg", post_id_b="amz_smartphone_reviews")
+    compare_res = await compare_posts(payload)
+
+    assert compare_res.report_a.post_id == "yt_demo_72neg"
+    assert compare_res.report_b.post_id == "amz_smartphone_reviews"
+    assert isinstance(compare_res.delta_positive_pct, float)
+    assert isinstance(compare_res.delta_negative_pct, float)
+    assert compare_res.winner in ("yt_demo_72neg", "amz_smartphone_reviews")
+
+
+def test_universal_ecommerce_and_expanded_platforms():
+    """Verify URL detection and extraction for Myntra, Meesho, Nykaa, and Ajio."""
+    from app.extractor import parse_input_url_or_id, UniversalEcommerceExtractor
+
+    # 1. URL detection
+    myntra_url = "https://www.myntra.com/dresses/tokyo-talkies/women-navy-blue-maxi-dress/12345/buy"
+    pid, plat, _ = parse_input_url_or_id(myntra_url)
+    assert plat == "myntra"
+
+    meesho_url = "https://www.meesho.com/wireless-bluetooth-earbuds/p/1a2b3c"
+    _, plat_m, _ = parse_input_url_or_id(meesho_url)
+    assert plat_m == "meesho"
+
+    nykaa_url = "https://www.nykaa.com/matte-liquid-lipstick/p/98765"
+    _, plat_n, _ = parse_input_url_or_id(nykaa_url)
+    assert plat_n == "nykaa"
+
+    ajio_url = "https://www.ajio.com/cotton-slim-fit-shirt/p/54321"
+    _, plat_a, _ = parse_input_url_or_id(ajio_url)
+    assert plat_a == "ajio"
+
+    # 2. Universal extraction fallback generates tailored benchmark reviews
+    extractor = UniversalEcommerceExtractor(platform="myntra")
+    post_data = extractor.extract(myntra_url, max_comments=50, fallback_on_blocked=True)
+    assert len(post_data.comments) == 50
+    assert post_data.platform == "myntra"
+    assert any("dress" in c.raw_text.lower() or "fabric" in c.raw_text.lower() or "fit" in c.raw_text.lower() for c in post_data.comments)

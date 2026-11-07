@@ -114,7 +114,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       toggleScrollBtn.disabled = true;
       sendToDashboardBtn.disabled = true;
       paginateBtn.style.display = "none";
-      setBanner("Navigate to YouTube, Instagram, Flipkart, or Amazon to collect live reviews.", "normal");
+      setBanner("Navigate to YouTube, Instagram, Flipkart, Amazon, Myntra, Meesho, Nykaa, or Ajio to collect live reviews.", "normal");
     }
   }
 

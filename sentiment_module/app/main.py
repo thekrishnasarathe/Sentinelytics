@@ -7,7 +7,7 @@ and sub-second export streaming for Social Media (YouTube, Instagram) and E-Comm
 import os
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 
 # Load environment variables from .env
@@ -19,12 +19,22 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .schemas import AnalyzeRequest, CachedReport, SettingsKeysResponse, SettingsKeysUpdate, BrowserIngestRequest
+from .schemas import (
+    AnalyzeRequest,
+    CachedReport,
+    SettingsKeysResponse,
+    SettingsKeysUpdate,
+    BrowserIngestRequest,
+    HistoryItemResponse,
+    CompareRequest,
+    CompareResponse,
+)
 from .extractor import (
     YouTubeExtractor,
     InstagramExtractor,
     AmazonExtractor,
     FlipkartExtractor,
+    UniversalEcommerceExtractor,
     parse_input_url_or_id,
     parse_url_and_detect_platform,
     DEMO_POST_IDS,
@@ -33,6 +43,7 @@ from .preprocessor import CommentPreprocessor
 from .nlp_engine import NLPEngine
 from .cache_manager import CacheManager
 from .exporter import ExporterEngine
+from .history_db import HistoryDB
 
 app = FastAPI(
     title="Social Media & E-Commerce Sentiment Analysis Platform (v2.0)",
@@ -69,11 +80,12 @@ if STATIC_DIR.exists():
 preprocessor = CommentPreprocessor()
 nlp_engine = NLPEngine()
 cache_mgr = CacheManager(cache_dir=CACHE_DIR)
+history_db = HistoryDB()
 exporter = ExporterEngine(cache_manager=cache_mgr, exports_dir=EXPORTS_DIR)
 
 
 def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
-    """Core analysis orchestrator: Parse URL -> Extract -> 4-Step Preprocess -> 2-Tier NLP -> Cache."""
+    """Core analysis orchestrator: Parse URL -> Extract -> 4-Step Preprocess -> 2-Tier NLP -> Cache & SQLite."""
     raw_input = request.post_id or request.post_url or "yt_demo_72neg"
     clean_id, detected_platform, canonical_url = parse_url_and_detect_platform(raw_input)
 
@@ -81,7 +93,7 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
     post_url = request.post_url or canonical_url
     is_demo = request.is_demo or (clean_id in DEMO_POST_IDS and not request.post_url and "http" not in raw_input)
 
-    # Step A: Comment & Review Extraction (Keyless Live Scraper or Demo Fallback)
+    # Step A: Comment & Review Extraction (Keyless Live Scraper, Custom Comments, or Smart Fallback)
     pages_fetched = 1
     unbounded = request.unbounded_fetch
     data_source = "Live Web Scrape"
@@ -89,11 +101,12 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
     platform_reported_total: Optional[int] = None
     warning_message: Optional[str] = None
 
-    if request.comments and len(request.comments) > 0:
-        raw_comments = request.comments
-        data_source = "User Provided Comments Payload"
-        data_source_badge = "USER: Custom Payload"
-        platform_reported_total = len(request.comments)
+    custom_input = request.custom_comments or request.comments
+    if custom_input and len(custom_input) > 0:
+        raw_comments = custom_input
+        data_source = "User / Extension Provided Comments Payload"
+        data_source_badge = "USER: Custom Ingestion"
+        platform_reported_total = len(custom_input)
     elif platform == "youtube":
         extractor = YouTubeExtractor(api_key=request.youtube_api_key)
         post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
@@ -151,6 +164,18 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         data_source_badge = post_data.data_source_badge
         platform_reported_total = post_data.platform_reported_total
         warning_message = post_data.warning_message
+    elif platform in ("myntra", "meesho", "nykaa", "ajio"):
+        extractor = UniversalEcommerceExtractor(platform=platform)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
+        raw_comments = post_data.comments
+        post_url = post_data.post_url
+        pages_fetched = post_data.pages_fetched
+        unbounded = post_data.unbounded_fetch
+        is_demo = post_data.is_demo
+        data_source = post_data.data_source
+        data_source_badge = post_data.data_source_badge
+        platform_reported_total = post_data.platform_reported_total
+        warning_message = post_data.warning_message
     else:
         raise ValueError(f"Unsupported platform: {platform}")
 
@@ -158,13 +183,12 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
     if total_raw == 0:
         raise ValueError(f"No comments or reviews extracted for {platform} target '{clean_id}'.")
 
-    # Step B: 4-Step Preprocessing Filter
+    # Step B: 4-Step Preprocessing Filter & Emotion Conflict Scoring
     clean_comments, removed_count = preprocessor.filter_bots_and_spam(raw_comments)
 
     preprocessed_items = []
     for c in clean_comments:
-        p_res = preprocessor.preprocess(c.raw_text)
-        # Normalize relative/variant timestamps into clean ISO-8601 strings
+        p_res = preprocessor.preprocess(c.raw_text, star_rating=c.star_rating)
         norm_ts = preprocessor.normalize_timestamp(c.timestamp)
         preprocessed_items.append({
             "comment_id": c.comment_id,
@@ -175,6 +199,9 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
             "like_count": c.like_count,
             "is_sarcastic": p_res["is_sarcastic"],
             "sarcastic_override_score": p_res["sarcastic_override_score"],
+            "irony_sarcasm_detected": p_res.get("irony_sarcasm_detected", False),
+            "confidence_score": p_res.get("confidence_score", 0.85),
+            "subjectivity_score": p_res.get("subjectivity_score", 0.50),
             "star_rating": c.star_rating,
             "verified_purchase": c.verified_purchase,
             "product_variant": c.product_variant,
@@ -194,6 +221,14 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
     ) = nlp_engine.process_all_comments(
         preprocessed_items,
         model_option=request.model_option,
+        platform=platform,
+    )
+
+    # Step D: Executive Insights Synthesis
+    insights = nlp_engine.generate_executive_insights(
+        processed_comments,
+        breakdown_rows,
+        tier2_breakdowns,
         platform=platform,
     )
 
@@ -227,10 +262,18 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         is_demo=is_demo,
         data_source=data_source,
         data_source_badge=data_source_badge,
+        executive_summary=insights["executive_summary"],
+        pain_points=insights["pain_points"],
+        recommendations=insights["recommendations"],
+        overall_confidence_score=insights["overall_confidence_score"],
+        overall_subjectivity_score=insights["overall_subjectivity_score"],
     )
 
-    # Step D: Atomic Write to Cache
+    # Step E: Dual Persistence (Atomic Cache + SQLite sentiment_hub.db)
     cache_mgr.save_report(report)
+    history_db.save_report_to_db(report)
+
+    return report
 
     return report
 
@@ -411,11 +454,11 @@ async def ingest_browser(request: BrowserIngestRequest, background_tasks: Backgr
 @app.get("/api/report/{post_id}", response_model=CachedReport)
 async def get_cached_report(post_id: str):
     """
-    Retrieve pre-computed sentiment report directly from cache in <5ms.
+    Retrieve pre-computed sentiment report directly from cache or SQLite in <5ms.
     If not cached yet, auto-computes using recognized preset.
     """
     clean_id, detected_platform, _ = parse_url_and_detect_platform(post_id)
-    report = cache_mgr.load_report(clean_id)
+    report = cache_mgr.load_report(clean_id) or history_db.get_report_by_id(clean_id)
     if not report:
         req = AnalyzeRequest(post_id=clean_id, platform=detected_platform, is_demo=(clean_id in DEMO_POST_IDS))
         report = execute_analysis_pipeline(req)
@@ -463,6 +506,51 @@ async def list_posts():
     """List available cached posts."""
     posts = cache_mgr.list_cached_posts()
     return {"cached_posts": posts}
+
+
+@app.get("/api/history", response_model=List[HistoryItemResponse])
+async def get_history(limit: int = 50):
+    """Returns past analysis history stored in SQLite sentiment_hub.db."""
+    return history_db.get_all_history(limit=limit)
+
+
+@app.post("/api/compare", response_model=CompareResponse)
+async def compare_posts(payload: CompareRequest):
+    """Compares two sentiment analysis reports side-by-side."""
+    clean_a, plat_a, _ = parse_url_and_detect_platform(payload.post_id_a)
+    report_a = cache_mgr.load_report(clean_a) or history_db.get_report_by_id(clean_a)
+    if not report_a:
+        report_a = execute_analysis_pipeline(AnalyzeRequest(post_id=clean_a, platform=plat_a))
+
+    clean_b, plat_b, _ = parse_url_and_detect_platform(payload.post_id_b)
+    report_b = cache_mgr.load_report(clean_b) or history_db.get_report_by_id(clean_b)
+    if not report_b:
+        report_b = execute_analysis_pipeline(AnalyzeRequest(post_id=clean_b, platform=plat_b))
+
+    pos_a = next((r.percentage for r in report_a.breakdown if r.category == "Positive"), 0.0)
+    neg_a = next((r.percentage for r in report_a.breakdown if r.category == "Negative"), 0.0)
+    pos_b = next((r.percentage for r in report_b.breakdown if r.category == "Positive"), 0.0)
+    neg_b = next((r.percentage for r in report_b.breakdown if r.category == "Negative"), 0.0)
+
+    delta_pos = round(pos_a - pos_b, 1)
+    delta_neg = round(neg_a - neg_b, 1)
+    winner = report_a.post_id if pos_a >= pos_b else report_b.post_id
+
+    return CompareResponse(
+        report_a=report_a,
+        report_b=report_b,
+        delta_positive_pct=delta_pos,
+        delta_negative_pct=delta_neg,
+        winner=winner,
+    )
+
+
+@app.delete("/api/history/{post_id}")
+async def delete_history_item(post_id: str):
+    """Removes a report from SQLite history."""
+    clean_id, _, _ = parse_url_and_detect_platform(post_id)
+    success = history_db.delete_history_item(clean_id)
+    return {"success": success, "post_id": clean_id}
 
 
 @app.get("/health")

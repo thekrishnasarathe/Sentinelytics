@@ -25,6 +25,7 @@ sentiment_module/.env
 # Runtime Caches & Exports
 sentiment_module/cache/
 sentiment_module/exports/
+*.db
 
 # Logs
 *.log

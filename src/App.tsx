@@ -31,67 +31,26 @@ import {
   Copy,
   Code,
   CheckCheck,
-  Upload
+  Upload,
+  GitCompare,
+  History,
 } from 'lucide-react';
 
-// --- Types & Interfaces ---
-
-export interface SentimentBreakdownRow {
-  category: 'Negative' | 'Positive' | 'Neutral';
-  comment_count: number;
-  percentage: number;
-  top_keywords: string[];
-}
-
-export interface Tier2RootCauseBreakdown {
-  category: string;
-  count: number;
-  percentage: number;
-  sample_comments: string[];
-}
-
-export interface ProcessedComment {
-  comment_id: string;
-  anonymized_author_id: string;
-  raw_text: string;
-  cleaned_text: string;
-  timestamp: string;
-  like_count: number;
-  sentiment: 'Positive' | 'Neutral' | 'Negative';
-  score: number;
-  root_cause?: string | null;
-  is_spam_or_duplicate?: boolean;
-  star_rating?: number | null;
-  verified_purchase?: boolean | null;
-  product_variant?: string | null;
-}
-
-export interface CachedReport {
-  post_id: string;
-  post_url: string;
-  platform: 'youtube' | 'instagram' | 'amazon' | 'flipkart';
-  model_used: string;
-  generated_at: string;
-  total_raw_comments: number;
-  spam_duplicates_removed: number;
-  total_valid_comments: number;
-  high_negative_alert: boolean;
-  breakdown: SentimentBreakdownRow[];
-  tier2_root_causes: Tier2RootCauseBreakdown[];
-  sample_comments: ProcessedComment[];
-  unbounded_fetch: boolean;
-  pages_fetched: number;
-  star_rating_breakdown?: Record<string, number> | null;
-  star_rating_distribution?: Record<string, { Positive: number; Neutral: number; Negative: number; total: number }> | null;
-  keyword_frequencies?: Array<{ keyword: string; count: number; sentiment: 'Positive' | 'Negative'; percentage?: number }> | null;
-  keyword_stats?: Array<{ keyword: string; count: number; sentiment: 'Positive' | 'Negative'; percentage: number }> | null;
-  timeline_buckets?: Array<{ label: string; positive: number; neutral: number; negative: number; total: number }> | null;
-  platform_reported_total?: number | null;
-  warning_message?: string | null;
-  is_demo?: boolean;
-  data_source?: string;
-  data_source_badge?: string;
-}
+import { SentimentDonutChart } from './components/SentimentDonutChart';
+import { RootCauseBarChart } from './components/RootCauseBarChart';
+import { EngagementTrendsChart } from './components/EngagementTrendsChart';
+import { TopKeywordsWidget } from './components/TopKeywordsWidget';
+import { LiveInsightsPanel } from './components/LiveInsightsPanel';
+import { HistoryView } from './components/HistoryView';
+import { MultiComparisonView } from './components/MultiComparisonView';
+import {
+  SentimentBreakdownRow,
+  Tier2RootCauseBreakdown,
+  ProcessedComment,
+  CachedReport,
+  PlatformType,
+} from './types';
+export type { SentimentBreakdownRow, Tier2RootCauseBreakdown, ProcessedComment, CachedReport };
 
 // --- Built-in Demo Presets ---
 
@@ -137,7 +96,7 @@ const DEMO_PRESETS = [
 export default function App() {
   const [selectedPreset, setSelectedPreset] = useState<string>('yt_demo_72neg');
   const [inputTarget, setInputTarget] = useState<string>('yt_demo_72neg');
-  const [platform, setPlatform] = useState<'youtube' | 'instagram' | 'amazon' | 'flipkart'>('youtube');
+  const [platform, setPlatform] = useState<PlatformType>('youtube');
   const [modelOption, setModelOption] = useState<'vader_hybrid' | 'xlm_roberta' | 'gemini_flash'>('vader_hybrid');
   const [unboundedFetch, setUnboundedFetch] = useState<boolean>(true);
   const [isDemoAction, setIsDemoAction] = useState<boolean>(true);
@@ -146,7 +105,7 @@ export default function App() {
   // Browser Collector / Extension Modal State
   const [showExtensionModal, setShowExtensionModal] = useState<boolean>(false);
   const [collectorTab, setCollectorTab] = useState<'extension' | 'bookmarklet' | 'import'>('extension');
-  const [importPlatform, setImportPlatform] = useState<'youtube' | 'instagram' | 'amazon' | 'flipkart'>('instagram');
+  const [importPlatform, setImportPlatform] = useState<PlatformType>('instagram');
   const [importUrl, setImportUrl] = useState<string>('');
   const [importText, setImportText] = useState<string>('');
   const [isImporting, setIsImporting] = useState<boolean>(false);
@@ -167,6 +126,11 @@ export default function App() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [exportLatency, setExportLatency] = useState<string | null>(null);
+
+  // View Navigation State
+  const [activeView, setActiveView] = useState<'dashboard' | 'comparison' | 'history'>('dashboard');
+  const [comparisonTargetA, setComparisonTargetA] = useState<string>('yt_demo_72neg');
+  const [comparisonTargetB, setComparisonTargetB] = useState<string>('amz_smartphone_reviews');
 
   // Filter & Search State
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -197,6 +161,14 @@ export default function App() {
       setPlatform('amazon');
     } else if (low.includes('flipkart')) {
       setPlatform('flipkart');
+    } else if (low.includes('myntra')) {
+      setPlatform('myntra');
+    } else if (low.includes('meesho')) {
+      setPlatform('meesho');
+    } else if (low.includes('nykaa')) {
+      setPlatform('nykaa');
+    } else if (low.includes('ajio')) {
+      setPlatform('ajio');
     }
   };
 
@@ -577,7 +549,7 @@ export default function App() {
   const negRow = report?.breakdown?.find(r => r.category === 'Negative') || { comment_count: 0, percentage: 0 };
   const posRow = report?.breakdown?.find(r => r.category === 'Positive') || { comment_count: 0, percentage: 0 };
   const neuRow = report?.breakdown?.find(r => r.category === 'Neutral') || { comment_count: 0, percentage: 0 };
-  const isEcommerce = report?.platform === 'amazon' || report?.platform === 'flipkart';
+  const isEcommerce = ['amazon', 'flipkart', 'myntra', 'meesho', 'nykaa', 'ajio'].includes(report?.platform?.toLowerCase() || '');
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-rose-500 selection:text-white">
@@ -626,6 +598,72 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 flex-1 w-full">
+        {/* Navigation Tabs */}
+        <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
+          <button
+            onClick={() => setActiveView('dashboard')}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeView === 'dashboard'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
+                : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Analysis Dashboard</span>
+          </button>
+          <button
+            onClick={() => setActiveView('comparison')}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeView === 'comparison'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
+                : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
+            }`}
+          >
+            <GitCompare className="w-4 h-4" />
+            <span>Multi-Comparison</span>
+          </button>
+          <button
+            onClick={() => setActiveView('history')}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeView === 'history'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
+                : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            <span>History Hub</span>
+          </button>
+        </div>
+
+        {activeView === 'comparison' && (
+          <MultiComparisonView
+            initialPostA={comparisonTargetA}
+            initialPostB={comparisonTargetB}
+            onBackToDashboard={(id) => {
+              if (id) {
+                handleExecuteAnalysis(id, 'youtube', modelOption, false);
+              }
+              setActiveView('dashboard');
+            }}
+          />
+        )}
+
+        {activeView === 'history' && (
+          <HistoryView
+            onLoadPost={(id) => {
+              handleExecuteAnalysis(id, 'youtube', modelOption, false);
+              setActiveView('dashboard');
+            }}
+            onComparePosts={(a, b) => {
+              setComparisonTargetA(a);
+              setComparisonTargetB(b);
+              setActiveView('comparison');
+            }}
+          />
+        )}
+
+        {activeView === 'dashboard' && (
+          <>
         {/* Preset Switcher Bar */}
         <div>
           <div className="flex items-center justify-between mb-2.5">
@@ -706,6 +744,10 @@ export default function App() {
                 <optgroup label="E-Commerce">
                   <option value="amazon">Amazon (HTML Reviews / ASIN)</option>
                   <option value="flipkart">Flipkart (HTML Reviews / FSN)</option>
+                  <option value="myntra">Myntra (Reviews / Catalog)</option>
+                  <option value="meesho">Meesho (Reviews / Catalog)</option>
+                  <option value="nykaa">Nykaa (Reviews / Catalog)</option>
+                  <option value="ajio">Ajio (Reviews / Catalog)</option>
                 </optgroup>
               </select>
             </div>
@@ -957,407 +999,55 @@ export default function App() {
           </div>
         )}
 
-        {/* 4 Interactive Visual Charts Grid */}
+        {/* AI Executive Insights & Recommendations */}
+        {report && (
+          <LiveInsightsPanel
+            executiveSummary={report.executive_summary}
+            painPoints={report.pain_points}
+            recommendations={report.recommendations}
+            overallConfidenceScore={report.overall_confidence_score}
+            overallSubjectivityScore={report.overall_subjectivity_score}
+            platform={report.platform}
+          />
+        )}
+
+        {/* 4 Interactive Visual Recharts Grid */}
         {report && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Chart 1: Donut Chart */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                    <PieChartIcon className="w-4 h-4 text-indigo-400" />
-                    <span>Chart 1: Sentiment Polarity Donut Chart</span>
-                  </h3>
-                  <p className="text-xs text-slate-400">Positive, Neutral, and Negative Distribution (%)</p>
-                </div>
-                <span className="text-xs font-mono text-slate-400">{report.model_used}</span>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-6 py-2">
-                <div className="relative w-44 h-44 flex items-center justify-center">
-                  <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="38" fill="transparent" stroke="#1e293b" strokeWidth="14" />
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="38"
-                      fill="transparent"
-                      stroke="#f43f5e"
-                      strokeWidth="14"
-                      strokeDasharray={`${(negRow.percentage / 100) * 238.76} 238.76`}
-                      strokeDashoffset="0"
-                      className="transition-all duration-700 ease-out"
-                    />
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="38"
-                      fill="transparent"
-                      stroke="#10b981"
-                      strokeWidth="14"
-                      strokeDasharray={`${(posRow.percentage / 100) * 238.76} 238.76`}
-                      strokeDashoffset={`${-((negRow.percentage / 100) * 238.76)}`}
-                      className="transition-all duration-700 ease-out"
-                    />
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="38"
-                      fill="transparent"
-                      stroke="#38bdf8"
-                      strokeWidth="14"
-                      strokeDasharray={`${(neuRow.percentage / 100) * 238.76} 238.76`}
-                      strokeDashoffset={`${-(((negRow.percentage + posRow.percentage) / 100) * 238.76)}`}
-                      className="transition-all duration-700 ease-out"
-                    />
-                  </svg>
-                  <div className="absolute text-center">
-                    <span className="text-xl font-extrabold text-white">{report.total_valid_comments.toLocaleString()}</span>
-                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Total Valid</p>
-                  </div>
-                </div>
-
-                <div className="space-y-3 w-full sm:w-48 text-xs">
-                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-950/60 border border-slate-800">
-                    <div className="flex items-center space-x-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-                      <span className="font-semibold text-slate-200">Negative</span>
-                    </div>
-                    <span className="font-bold text-rose-400">{negRow.percentage}% ({negRow.comment_count})</span>
-                  </div>
-
-                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-950/60 border border-slate-800">
-                    <div className="flex items-center space-x-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                      <span className="font-semibold text-slate-200">Positive</span>
-                    </div>
-                    <span className="font-bold text-emerald-400">{posRow.percentage}% ({posRow.comment_count})</span>
-                  </div>
-
-                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-950/60 border border-slate-800">
-                    <div className="flex items-center space-x-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
-                      <span className="font-semibold text-slate-200">Neutral</span>
-                    </div>
-                    <span className="font-bold text-sky-400">{neuRow.percentage}% ({neuRow.comment_count})</span>
-                  </div>
-                </div>
-              </div>
+            {/* Chart 1: Donut Chart with Center KPI */}
+            <div className="min-h-[380px]">
+              <SentimentDonutChart
+                breakdown={report.breakdown}
+                totalValidComments={report.total_valid_comments}
+                highNegativeAlert={report.high_negative_alert}
+              />
             </div>
 
-            {/* Chart 2: Tier-2 Root-Cause Bar Chart (100% Negative Coverage + Click-to-Filter) */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                    <BarChart3 className="w-4 h-4 text-rose-400" />
-                    <span>Chart 2: Tier-2 Negative Root-Cause Breakdown</span>
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {isEcommerce ? 'E-Commerce Root Causes: Defect, Delivery, Counterfeit, Value' : 'Social Media Root Causes: Bugs, Audio/Video, Content, Trolls'} • Click any bar to filter comments
-                  </p>
-                </div>
-                {selectedRootCauseFilter !== 'ALL' ? (
-                  <button
-                    onClick={() => setSelectedRootCauseFilter('ALL')}
-                    className="flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition cursor-pointer"
-                  >
-                    <span>Filtered: {selectedRootCauseFilter}</span>
-                    <X className="w-3 h-3 ml-1" />
-                  </button>
-                ) : (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
-                    100% Negative Coverage
-                  </span>
-                )}
-              </div>
-
-              <div className="space-y-3.5">
-                {(report.tier2_root_causes || []).map((rc, idx) => {
-                  const isSelected = selectedRootCauseFilter === rc.category;
-                  return (
-                    <div
-                      key={idx}
-                      onClick={() => {
-                        setSelectedRootCauseFilter(isSelected ? 'ALL' : rc.category);
-                        if (!isSelected) setFeedFilter('ALL');
-                      }}
-                      className={`border rounded-xl p-3 transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-rose-950/40 border-rose-500 ring-2 ring-rose-500/30'
-                          : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700 hover:bg-slate-950'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between text-xs mb-1.5">
-                        <span className={`font-bold ${isSelected ? 'text-rose-300' : 'text-slate-200'}`}>{rc.category}</span>
-                        <span className="font-mono font-bold text-rose-400">{rc.count} ({rc.percentage}%)</span>
-                      </div>
-                      <div className="w-full bg-slate-800 rounded-full h-2 mb-2 overflow-hidden">
-                        <div
-                          className="bg-gradient-to-r from-rose-500 to-indigo-500 h-2 rounded-full transition-all duration-700 ease-out"
-                          style={{ width: `${Math.min(100, rc.percentage)}%` }}
-                        ></div>
-                      </div>
-                      <p className="text-[11px] text-slate-400 italic line-clamp-1">
-                        "{rc.sample_comments && rc.sample_comments.length > 0 ? rc.sample_comments[0] : 'No sample reported'}"
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
+            {/* Chart 2: Tier-2 Root-Cause Bar Chart */}
+            <div className="min-h-[380px]">
+              <RootCauseBarChart
+                rootCauses={report.tier2_root_causes}
+                platform={report.platform}
+                selectedCause={selectedRootCauseFilter === 'ALL' ? null : selectedRootCauseFilter}
+                onSelectCause={(cause) => setSelectedRootCauseFilter(cause || 'ALL')}
+              />
             </div>
 
-            {/* Chart 3: Sentiment Trend & Ingestion Wave (Multi-Series Stacked Volume) */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                    <TrendingUp className="w-4 h-4 text-indigo-400" />
-                    <span>Chart 3: Sentiment Trend & Ingestion Wave Over Time</span>
-                  </h3>
-                  <p className="text-xs text-slate-400">Authentic multi-series volume stacked across 10-12 chronological wave buckets</p>
-                </div>
-                <span className="text-xs text-slate-400 font-mono">Time-Series</span>
-              </div>
-
-              <div className="h-48 w-full flex items-end pt-6 pb-2 px-2 relative">
-                <div className="absolute inset-x-2 inset-y-4 flex flex-col justify-between pointer-events-none opacity-20">
-                  <div className="border-b border-slate-600 w-full"></div>
-                  <div className="border-b border-slate-600 w-full"></div>
-                  <div className="border-b border-slate-600 w-full"></div>
-                </div>
-
-                <div className="w-full h-full flex items-end justify-between gap-1.5 sm:gap-2 z-10">
-                  {timeSeriesData.length === 0 ? (
-                    <div className="w-full h-full flex items-center justify-center text-xs text-slate-500">
-                      No timestamp data available for time-series trend.
-                    </div>
-                  ) : (
-                    (() => {
-                      const maxVal = Math.max(...timeSeriesData.map(b => b.total), 1);
-                      return timeSeriesData.map((b, i) => {
-                        const barHeightPct = Math.max(18, Math.round((b.total / maxVal) * 100));
-                        const negPct = b.total > 0 ? (b.Negative / b.total) * 100 : 0;
-                        const neuPct = b.total > 0 ? (b.Neutral / b.total) * 100 : 0;
-                        const posPct = b.total > 0 ? (b.Positive / b.total) * 100 : 0;
-
-                        return (
-                          <div key={i} className="flex-1 flex flex-col items-center h-full justify-end group relative">
-                            {/* Hover Tooltip */}
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-14 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[10px] whitespace-nowrap z-30 pointer-events-none shadow-2xl">
-                              <p className="font-bold text-white mb-0.5">{b.label} • {b.total} comments</p>
-                              <div className="flex items-center space-x-2">
-                                <span className="text-rose-400 font-bold">Neg: {b.Negative} ({Math.round(negPct)}%)</span>
-                                <span className="text-sky-400 font-bold">Neu: {b.Neutral} ({Math.round(neuPct)}%)</span>
-                                <span className="text-emerald-400 font-bold">Pos: {b.Positive} ({Math.round(posPct)}%)</span>
-                              </div>
-                            </div>
-
-                            <div className="w-full flex flex-col items-center justify-end h-36">
-                              <div
-                                style={{ height: `${barHeightPct}%` }}
-                                className="w-full max-w-[28px] sm:max-w-[34px] rounded-t overflow-hidden flex flex-col justify-end bg-slate-800 transition-all duration-300"
-                              >
-                                {b.Negative > 0 && (
-                                  <div
-                                    style={{ height: `${negPct}%` }}
-                                    className="w-full bg-rose-500 group-hover:bg-rose-400 transition-all"
-                                  ></div>
-                                )}
-                                {b.Neutral > 0 && (
-                                  <div
-                                    style={{ height: `${neuPct}%` }}
-                                    className="w-full bg-sky-500 group-hover:bg-sky-400 transition-all"
-                                  ></div>
-                                )}
-                                {b.Positive > 0 && (
-                                  <div
-                                    style={{ height: `${posPct}%` }}
-                                    className="w-full bg-emerald-500 group-hover:bg-emerald-400 transition-all"
-                                  ></div>
-                                )}
-                              </div>
-                            </div>
-                            <span className="text-[9px] sm:text-[10px] text-slate-400 mt-2 font-mono truncate max-w-full text-center">
-                              {b.label}
-                            </span>
-                          </div>
-                        );
-                      });
-                    })()
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-center space-x-6 mt-3 text-xs">
-                <span className="flex items-center space-x-1.5 text-rose-400">
-                  <span className="w-2.5 h-2.5 bg-rose-500 rounded"></span>
-                  <span>Negative ({negRow.comment_count})</span>
-                </span>
-                <span className="flex items-center space-x-1.5 text-sky-400">
-                  <span className="w-2.5 h-2.5 bg-sky-500 rounded"></span>
-                  <span>Neutral ({neuRow.comment_count})</span>
-                </span>
-                <span className="flex items-center space-x-1.5 text-emerald-400">
-                  <span className="w-2.5 h-2.5 bg-emerald-500 rounded"></span>
-                  <span>Positive ({posRow.comment_count})</span>
-                </span>
-              </div>
+            {/* Chart 3: Engagement Trends Chart */}
+            <div className="min-h-[380px]">
+              <EngagementTrendsChart
+                buckets={report.timeline_buckets || timeSeriesData}
+              />
             </div>
-
-            {/* Chart 4: Star Rating & Keywords (E-Commerce) OR Top Keywords (Social) */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                    {isEcommerce ? (
-                      <>
-                        <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
-                        <span>Chart 4: E-Commerce Star Ratings & Issue Keywords</span>
-                      </>
-                    ) : (
-                      <>
-                        <Activity className="w-4 h-4 text-purple-400" />
-                        <span>Chart 4: Top Recurring Keyword & Issue Frequency</span>
-                      </>
-                    )}
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {isEcommerce
-                      ? 'Star rating sentiment distribution + top extracted product complaint & praise keywords'
-                      : 'Top extracted praise and complaint keywords with exact comment counts'}
-                  </p>
-                </div>
-                <span className="text-xs font-mono text-slate-400">{report.platform.toUpperCase()}</span>
-              </div>
-
-              {isEcommerce ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-1">
-                  {/* Left: Star Rating Distribution 5★ to 1★ */}
-                  <div className="space-y-2">
-                    <span className="text-xs font-semibold text-slate-300 block mb-1">Star Ratings vs NLP Polarity:</span>
-                    {[5, 4, 3, 2, 1].map((starsNum) => {
-                      const starDist = report.star_rating_distribution?.[String(starsNum)];
-                      const legacyCount = report.star_rating_breakdown?.[`${starsNum}_star`] || 0;
-                      const totalStarCount = starDist ? starDist.total : legacyCount;
-                      const totalComments = report.total_valid_comments || 1;
-                      const pct = Math.round((totalStarCount / totalComments) * 100);
-
-                      const posCount = starDist ? starDist.Positive : (starsNum >= 4 ? totalStarCount : 0);
-                      const neuCount = starDist ? starDist.Neutral : (starsNum === 3 ? totalStarCount : 0);
-                      const negCount = starDist ? starDist.Negative : (starsNum <= 2 ? totalStarCount : 0);
-
-                      return (
-                        <div key={starsNum} className="flex items-center space-x-2 text-xs">
-                          <div className="w-10 flex items-center font-bold text-slate-300 space-x-0.5">
-                            <span>{starsNum}</span>
-                            <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
-                          </div>
-                          <div className="flex-1 bg-slate-800 rounded-full h-2.5 overflow-hidden flex">
-                            {totalStarCount > 0 ? (
-                              <>
-                                <div
-                                  style={{ width: `${(posCount / totalStarCount) * 100}%` }}
-                                  className="bg-emerald-500 h-2.5"
-                                  title={`Positive: ${posCount}`}
-                                ></div>
-                                <div
-                                  style={{ width: `${(neuCount / totalStarCount) * 100}%` }}
-                                  className="bg-sky-400 h-2.5"
-                                  title={`Neutral: ${neuCount}`}
-                                ></div>
-                                <div
-                                  style={{ width: `${(negCount / totalStarCount) * 100}%` }}
-                                  className="bg-rose-500 h-2.5"
-                                  title={`Negative: ${negCount}`}
-                                ></div>
-                              </>
-                            ) : (
-                              <div className="w-0"></div>
-                            )}
-                          </div>
-                          <span className="w-16 text-right font-mono text-[11px] text-slate-400">
-                            {totalStarCount} ({pct}%)
-                          </span>
-                        </div>
-                      );
-                    })}
-                    <div className="flex items-center justify-end space-x-3 pt-1 text-[10px] text-slate-400">
-                      <span className="flex items-center space-x-1 text-emerald-400"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span><span>Pos</span></span>
-                      <span className="flex items-center space-x-1 text-sky-400"><span className="w-1.5 h-1.5 bg-sky-400 rounded-full"></span><span>Neu</span></span>
-                      <span className="flex items-center space-x-1 text-rose-400"><span className="w-1.5 h-1.5 bg-rose-500 rounded-full"></span><span>Neg</span></span>
-                    </div>
-                  </div>
-
-                  {/* Right: Top Issue & Praise Keywords */}
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-semibold text-slate-300 block mb-1">Top Extracted Keywords (Click to filter):</span>
-                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                      {((report.keyword_stats && report.keyword_stats.length > 0 ? report.keyword_stats : report.keyword_frequencies) || []).slice(0, 6).map((kw, idx) => {
-                        const isNeg = kw.sentiment === 'Negative';
-                        const maxKwCount = Math.max(...((report.keyword_stats || report.keyword_frequencies || []).map(k => k.count)), 1);
-                        const kwWidth = Math.max(15, Math.round((kw.count / maxKwCount) * 100));
-                        return (
-                          <button
-                            key={idx}
-                            onClick={() => setSearchQuery(kw.keyword)}
-                            className={`w-full p-1.5 rounded-lg border text-left flex items-center justify-between transition cursor-pointer text-xs ${
-                              isNeg
-                                ? 'bg-rose-950/30 border-rose-800/60 hover:bg-rose-900/40 text-rose-300'
-                                : 'bg-emerald-950/30 border-emerald-800/60 hover:bg-emerald-900/40 text-emerald-300'
-                            }`}
-                          >
-                            <div className="flex-1 mr-2 truncate">
-                              <span className="font-bold text-[11px] block truncate">{kw.keyword}</span>
-                              <div className="w-full bg-slate-800 rounded-full h-1 mt-1 overflow-hidden">
-                                <div style={{ width: `${kwWidth}%` }} className={`h-1 rounded-full ${isNeg ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
-                              </div>
-                            </div>
-                            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-900 font-bold shrink-0">
-                              {kw.count}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2 py-1 text-xs">
-                  <span className="font-semibold text-slate-300 mb-1 block">Top 8 High-Signal Keywords (Click to filter):</span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {((report.keyword_stats && report.keyword_stats.length > 0 ? report.keyword_stats : report.keyword_frequencies) || []).slice(0, 8).map((kw, idx) => {
-                      const isNeg = kw.sentiment === 'Negative';
-                      const maxKwCount = Math.max(...((report.keyword_stats || report.keyword_frequencies || []).map(k => k.count)), 1);
-                      const kwWidth = Math.max(15, Math.round((kw.count / maxKwCount) * 100));
-                      return (
-                        <button
-                          key={idx}
-                          onClick={() => setSearchQuery(kw.keyword)}
-                          className={`p-2.5 rounded-xl border text-left flex items-center justify-between transition cursor-pointer ${
-                            isNeg
-                              ? 'bg-rose-950/40 border-rose-800/80 hover:bg-rose-900/40 text-rose-300'
-                              : 'bg-emerald-950/40 border-emerald-800/80 hover:bg-emerald-900/40 text-emerald-300'
-                          }`}
-                        >
-                          <div className="flex-1 mr-2 truncate">
-                            <div className="flex items-center space-x-1.5">
-                              <span className={`w-2 h-2 rounded-full ${isNeg ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
-                              <span className="font-bold truncate text-[11px]">{kw.keyword}</span>
-                            </div>
-                            <div className="w-full bg-slate-800 rounded-full h-1 mt-1.5 overflow-hidden">
-                              <div style={{ width: `${kwWidth}%` }} className={`h-1 rounded-full ${isNeg ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
-                            </div>
-                          </div>
-                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-900/80 ml-1 font-bold shrink-0">
-                            {kw.count}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+            {/* Chart 4: Top Keywords & Star Ratings Widget */}
+            <div className="min-h-[380px]">
+              <TopKeywordsWidget
+                keywordStats={report.keyword_stats}
+                keywordFrequencies={report.keyword_frequencies}
+                starDistribution={report.star_rating_distribution}
+                isEcommerce={isEcommerce}
+                onSelectKeyword={(kw) => setSearchQuery(kw)}
+              />
             </div>
           </div>
         )}
@@ -1555,6 +1245,8 @@ export default function App() {
               </div>
             )}
           </div>
+        )}
+          </>
         )}
       </main>
 

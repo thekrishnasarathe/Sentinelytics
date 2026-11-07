@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Sentinelytics - Live Review & Comment Collector",
-  "version": "2.0.0",
-  "description": "Extract 100% authentic, live comments and customer reviews from YouTube, Instagram, Flipkart, and Amazon directly into your Sentinelytics dashboard.",
+  "version": "2.2.0",
+  "description": "Extract 100% authentic, live comments and customer reviews from YouTube, Instagram, Flipkart, Amazon, Myntra, Meesho, Nykaa, and Ajio directly into Sentinelytics.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -14,11 +14,18 @@
     "*://*.flipkart.com/*",
     "*://*.amazon.in/*",
     "*://*.amazon.com/*",
+    "*://*.myntra.com/*",
+    "*://*.meesho.com/*",
+    "*://*.nykaa.com/*",
+    "*://*.ajio.com/*",
     "http://localhost:8000/*",
     "http://127.0.0.1:8000/*",
     "http://localhost:3000/*",
     "http://127.0.0.1:3000/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "Sentinelytics Collector"
@@ -30,11 +37,15 @@
         "*://*.instagram.com/*",
         "*://*.flipkart.com/*",
         "*://*.amazon.in/*",
-        "*://*.amazon.com/*"
+        "*://*.amazon.com/*",
+        "*://*.myntra.com/*",
+        "*://*.meesho.com/*",
+        "*://*.nykaa.com/*",
+        "*://*.ajio.com/*"
       ],
       "js": ["content.js"],
+      "css": ["content.css"],
       "run_at": "document_idle"
     }
   ]
 }
-

@@ -22,9 +22,9 @@ class CommentInput(BaseModel):
 class PostInput(BaseModel):
     post_id: str = Field(..., description="Unique identifier of video, reel, ASIN, or product FSN")
     post_url: str = Field(..., description="Public link to post or product page")
-    platform: Literal["youtube", "instagram", "amazon", "flipkart"] = Field(
+    platform: Literal["youtube", "instagram", "amazon", "flipkart", "myntra", "meesho", "nykaa", "ajio"] = Field(
         default="youtube",
-        description="Source platform: youtube, instagram, amazon, flipkart"
+        description="Source platform: youtube, instagram, amazon, flipkart, myntra, meesho, nykaa, ajio"
     )
     comments: List[CommentInput] = Field(default_factory=list, description="List of raw comments or reviews")
     unbounded_fetch: bool = Field(default=True, description="Whether comments were fetched uncapped without limit")
@@ -44,7 +44,7 @@ class AnalyzeRequest(BaseModel):
     )
     platform: Optional[str] = Field(
         default=None,
-        description="Optional platform override (youtube, instagram, amazon, flipkart); auto-detected if omitted"
+        description="Optional platform override (youtube, instagram, amazon, flipkart, myntra, meesho, nykaa, ajio); auto-detected if omitted"
     )
     model_option: Literal["vader_hybrid", "xlm_roberta", "gemini_flash"] = Field(
         default="vader_hybrid",
@@ -53,6 +53,10 @@ class AnalyzeRequest(BaseModel):
     comments: Optional[List[CommentInput]] = Field(
         default=None,
         description="Optional pre-extracted comments. If omitted, extractor pulls live or loads demo dataset."
+    )
+    custom_comments: Optional[List[CommentInput]] = Field(
+        default=None,
+        description="Direct custom comments list payload from extension or manual injection"
     )
     unbounded_fetch: bool = Field(default=True, description="Whether to fetch all available comments without cap limit")
     is_demo: bool = Field(default=False, description="True if explicitly requesting the demo preset dataset")
@@ -68,9 +72,9 @@ class BrowserIngestRequest(BaseModel):
     post_url: str = Field(..., description="Public link of the post or product page")
     post_id: str = Field(..., description="Unique post ID, ASIN, FSN, or video ID")
     title: Optional[str] = Field(default=None, description="Title of the video or product")
-    platform: Literal["youtube", "instagram", "amazon", "flipkart"] = Field(
+    platform: Literal["youtube", "instagram", "amazon", "flipkart", "myntra", "meesho", "nykaa", "ajio"] = Field(
         default="youtube",
-        description="Platform: youtube, instagram, amazon, flipkart"
+        description="Platform: youtube, instagram, amazon, flipkart, myntra, meesho, nykaa, ajio"
     )
     comments: List[CommentInput] = Field(..., description="List of scraped comments/reviews from browser extension")
     model_option: Literal["vader_hybrid", "xlm_roberta", "gemini_flash"] = Field(
@@ -90,6 +94,9 @@ class ProcessedComment(BaseModel):
     score: float
     root_cause: Optional[str] = None
     is_spam_or_duplicate: bool = False
+    irony_sarcasm_detected: bool = Field(default=False, description="Whether sarcasm or text-emoji conflict was detected")
+    confidence_score: float = Field(default=0.85, description="NLP confidence score between 0.0 and 1.0")
+    subjectivity_score: float = Field(default=0.50, description="Subjectivity score between 0.0 (objective) and 1.0 (highly subjective)")
     # E-Commerce Product Review fields
     star_rating: Optional[int] = None
     verified_purchase: Optional[bool] = None
@@ -174,6 +181,54 @@ class CachedReport(BaseModel):
         default="LIVE: Direct Scraper",
         description="Short badge identifier for extraction provenance"
     )
+    # Executive Insights & Metametrics
+    executive_summary: Optional[str] = Field(
+        default=None,
+        description="AI Executive Summary synthesized from sentiment breakdown and top root causes"
+    )
+    pain_points: Optional[List[str]] = Field(
+        default_factory=list,
+        description="Top 3 prioritized customer friction points or root causes"
+    )
+    recommendations: Optional[List[str]] = Field(
+        default_factory=list,
+        description="Top 3 actionable business or engineering recommendations"
+    )
+    overall_confidence_score: Optional[float] = Field(
+        default=0.88,
+        description="Aggregated pipeline confidence score (0.0 to 1.0)"
+    )
+    overall_subjectivity_score: Optional[float] = Field(
+        default=0.62,
+        description="Aggregated subjective vs objective comment ratio (0.0 to 1.0)"
+    )
+
+
+class HistoryItemResponse(BaseModel):
+    post_id: str
+    post_url: str
+    platform: str
+    total_comments: int
+    positive_pct: float
+    negative_pct: float
+    neutral_pct: float
+    generated_at: str
+    model_used: str
+    high_negative_alert: bool = False
+    executive_summary: Optional[str] = None
+
+
+class CompareRequest(BaseModel):
+    post_id_a: str = Field(..., description="First post ID, URL, ASIN or identifier")
+    post_id_b: str = Field(..., description="Second post ID, URL, ASIN or identifier")
+
+
+class CompareResponse(BaseModel):
+    report_a: CachedReport
+    report_b: CachedReport
+    delta_positive_pct: float
+    delta_negative_pct: float
+    winner: str = Field(..., description="Which target scored higher positive sentiment ratio")
 
 
 class SettingsKeysResponse(BaseModel):

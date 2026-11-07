@@ -17,6 +17,8 @@ from .schemas import ProcessedComment, SentimentBreakdownRow, Tier2RootCauseBrea
 
 logger = logging.getLogger("sentiment_pipeline")
 
+ECOMM_PLATFORMS = {"amazon", "flipkart", "myntra", "meesho", "nykaa", "ajio"}
+
 # Tier-2 Root-Cause Category Definitions: Social Media
 ROOT_CAUSE_TECHNICAL = "Technical / Feature Bugs"
 ROOT_CAUSE_AUDIO_VIDEO = "Audio / Video / Caption Quality"
@@ -309,7 +311,7 @@ class NLPEngine:
         """
         combined = f"{raw_text} {cleaned_text}".lower()
 
-        if platform in ("amazon", "flipkart"):
+        if platform in ECOMM_PLATFORMS:
             # E-Commerce Root Causes
             scores: Dict[str, int] = {cat: 0 for cat in ECOMM_ROOT_CAUSES}
             for category, regex_list in self._compiled_ecomm_causes.items():
@@ -356,7 +358,7 @@ class NLPEngine:
         """Extract top recurring issues or praise keywords adapted for the platform domain."""
         raw_texts = " ".join([c.raw_text.lower() for c in comments])
 
-        if platform in ("amazon", "flipkart"):
+        if platform in ECOMM_PLATFORMS:
             if sentiment == "Negative":
                 curated_issues = [
                     ("Battery drain & heating defect", ["battery", "heating", "drain", "heat", "iron box"]),
@@ -437,7 +439,7 @@ class NLPEngine:
         }
 
         # Domain seed phrases / high-signal keywords to check
-        if platform in ("amazon", "flipkart"):
+        if platform in ECOMM_PLATFORMS:
             target_keywords = [
                 # Negative issues
                 ("battery drain", "Negative"),
@@ -699,6 +701,9 @@ class NLPEngine:
                     score=score,
                     root_cause=root_cause,
                     is_spam_or_duplicate=False,
+                    irony_sarcasm_detected=item.get("irony_sarcasm_detected", False),
+                    confidence_score=item.get("confidence_score", 0.85),
+                    subjectivity_score=item.get("subjectivity_score", 0.50),
                     star_rating=star_rating,
                     verified_purchase=item.get("verified_purchase"),
                     product_variant=item.get("product_variant"),
@@ -745,7 +750,7 @@ class NLPEngine:
         ]
 
         # Domain-specific root causes
-        target_root_causes = ECOMM_ROOT_CAUSES if platform in ("amazon", "flipkart") else SOCIAL_ROOT_CAUSES
+        target_root_causes = ECOMM_ROOT_CAUSES if platform in ECOMM_PLATFORMS else SOCIAL_ROOT_CAUSES
         tier2_breakdowns: List[Tier2RootCauseBreakdown] = []
 
         for cause in target_root_causes:
@@ -788,3 +793,101 @@ class NLPEngine:
             timeline_buckets,
             keyword_stats,
         )
+
+    def generate_executive_insights(
+        self,
+        processed_comments: List[ProcessedComment],
+        breakdown_rows: List[SentimentBreakdownRow],
+        tier2_breakdowns: List[Tier2RootCauseBreakdown],
+        platform: str = "youtube",
+    ) -> Dict[str, Any]:
+        """
+        Synthesizes an AI Executive Summary, prioritized Customer Pain Points,
+        and Actionable Engineering/Business Recommendations from analytical findings.
+        """
+        total_valid = len(processed_comments)
+        if total_valid == 0:
+            return {
+                "executive_summary": "No valid comments processed.",
+                "pain_points": ["Insufficient data available for extraction."],
+                "recommendations": ["Expand comment extraction volume."],
+                "overall_confidence_score": 0.85,
+                "overall_subjectivity_score": 0.50,
+            }
+
+        pos_row = next((r for r in breakdown_rows if r.category == "Positive"), None)
+        neg_row = next((r for r in breakdown_rows if r.category == "Negative"), None)
+        neu_row = next((r for r in breakdown_rows if r.category == "Neutral"), None)
+
+        pos_pct = pos_row.percentage if pos_row else 0.0
+        neg_pct = neg_row.percentage if neg_row else 0.0
+        neu_pct = neu_row.percentage if neu_row else 0.0
+
+        dominant = "Positive" if pos_pct >= max(neg_pct, neu_pct) else ("Negative" if neg_pct >= max(pos_pct, neu_pct) else "Neutral")
+        dominant_pct = pos_pct if dominant == "Positive" else (neg_pct if dominant == "Negative" else neu_pct)
+
+        sorted_causes = sorted(tier2_breakdowns, key=lambda x: x.count, reverse=True)
+        top_cause_1 = sorted_causes[0].category if sorted_causes and sorted_causes[0].count > 0 else "General Customer Feedback"
+        top_cause_1_pct = sorted_causes[0].percentage if sorted_causes and sorted_causes[0].count > 0 else 0.0
+        top_cause_2 = sorted_causes[1].category if len(sorted_causes) > 1 and sorted_causes[1].count > 0 else None
+        top_cause_2_pct = sorted_causes[1].percentage if len(sorted_causes) > 1 and sorted_causes[1].count > 0 else 0.0
+
+        alert_str = " ⚠️ High negative sentiment alert is active (>70%)." if neg_pct > 70.0 else ""
+
+        if top_cause_2:
+            summary = (
+                f"Analysis of {total_valid:,} comments across {platform.capitalize()} shows a predominantly {dominant.lower()} sentiment ({dominant_pct}%). "
+                f"Customer friction is heavily concentrated in {top_cause_1} ({top_cause_1_pct}%) followed by {top_cause_2} ({top_cause_2_pct}%).{alert_str}"
+            )
+        else:
+            summary = (
+                f"Analysis of {total_valid:,} comments across {platform.capitalize()} shows a predominantly {dominant.lower()} sentiment ({dominant_pct}%). "
+                f"Primary root cause identified is {top_cause_1} ({top_cause_1_pct}%).{alert_str}"
+            )
+
+        pain_points: List[str] = []
+        for cause in sorted_causes[:3]:
+            if cause.count > 0:
+                snippet = f" — e.g., \"{cause.sample_comments[0][:65]}...\"" if cause.sample_comments else ""
+                pain_points.append(f"{cause.category}: {cause.count} occurrences ({cause.percentage}% of negative feedback){snippet}")
+        if not pain_points:
+            pain_points = ["No severe operational or product friction points detected in sample."]
+
+        recommendations: List[str] = []
+        is_ecomm = platform in ECOMM_PLATFORMS
+        if is_ecomm:
+            if any("Defect" in c.category or "Hardware" in c.category for c in sorted_causes if c.count > 0):
+                recommendations.append("Initiate QA batch inspection for reported hardware/material defects.")
+            if any("Delivery" in c.category or "Logistics" in c.category for c in sorted_causes if c.count > 0):
+                recommendations.append("Audit courier transit protocols and reinforce tamper-evident packaging.")
+            if any("Counterfeit" in c.category or "Wrong" in c.category for c in sorted_causes if c.count > 0):
+                recommendations.append("Verify seller authenticity certificates and tighten catalog SKU mapping.")
+            if any("Value" in c.category or "Warranty" in c.category for c in sorted_causes if c.count > 0):
+                recommendations.append("Clarify return/warranty policies with responsive customer care turnaround.")
+            if len(recommendations) < 3:
+                recommendations.append("Highlight authentic buyer satisfaction stories to boost shopper confidence.")
+        else:
+            if any("Technical" in c.category for c in sorted_causes if c.count > 0):
+                recommendations.append("Prioritize hotfix release addressing app freeze, crash, and login authentication errors.")
+            if any("Audio" in c.category for c in sorted_causes if c.count > 0):
+                recommendations.append("Implement automated audio normalization and verify multi-track video sync before publishing.")
+            if any("Content" in c.category for c in sorted_causes if c.count > 0):
+                recommendations.append("Refine pacing and align video titles closely with content delivery to prevent clickbait fatigue.")
+            if any("Trolls" in c.category for c in sorted_causes if c.count > 0):
+                recommendations.append("Enable comment moderation filters to suppress coordinated bot attacks and ratio spam.")
+            if len(recommendations) < 3:
+                recommendations.append("Pin top community questions with transparent roadmap milestones.")
+
+        conf_scores = [c.confidence_score for c in processed_comments if c.confidence_score is not None]
+        subj_scores = [c.subjectivity_score for c in processed_comments if c.subjectivity_score is not None]
+
+        overall_conf = round(sum(conf_scores) / len(conf_scores), 2) if conf_scores else 0.88
+        overall_subj = round(sum(subj_scores) / len(subj_scores), 2) if subj_scores else 0.62
+
+        return {
+            "executive_summary": summary,
+            "pain_points": pain_points[:3],
+            "recommendations": recommendations[:3],
+            "overall_confidence_score": overall_conf,
+            "overall_subjectivity_score": overall_subj,
+        }

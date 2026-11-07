@@ -98,6 +98,110 @@ def normalize_timestamp(raw_ts: Any, fallback_index: int = 0) -> str:
     return (now - timedelta(minutes=stagger_min)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# 64-Emoji DeepMoji Valence & Emotion Lexicon
+DEEPMOJI_POSITIVE_SET = {
+    "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "☺️", "😊",
+    "😇", "🙂", "😍", "🥰", "😘", "😗", "😋", "😛", "😜", "🤪",
+    "🤗", "🤩", "😎", "🥳", "👍", "👏", "🙌", "💯", "🔥", "✨",
+    "🚀", "❤️"
+}
+
+DEEPMOJI_NEGATIVE_SET = {
+    "☹️", "🙁", "😕", "😟", "🥺", "😢", "😭", "😤", "😠", "😡",
+    "🤬", "🤯", "😳", "🥵", "🥶", "😱", "😨", "😰", "😥", "😓",
+    "🤢", "🤮", "🤧", "😷", "🤒", "🤕", "👎", "💔", "💩", "🤡",
+    "🙄", "🤦"
+}
+
+
+class DeepMojiEmotionEngine:
+    """
+    64-Emoji Emotion & Conflict Detection Engine.
+    Detects emoji-text sarcasm conflict, calculates irony confidence,
+    and produces subjectivity scores.
+    """
+    SUBJECTIVE_MARKERS = {
+        "feel", "felt", "think", "thought", "believe", "personally", "imo", "imho",
+        "opinion", "loved", "hated", "amazing", "terrible", "worst", "best",
+        "awesome", "disappointed", "laggy", "superb", "bakwas", "mast", "badhiya",
+        "bekar", "worthless", "paisa", "rubbish", "horrible", "wonderful"
+    }
+
+    TEXT_POSITIVE_CLUES = {
+        "love", "loved", "great", "awesome", "good", "amazing", "best", "superb",
+        "excellent", "perfect", "favorite", "helpful", "mast", "badhiya", "kamaal"
+    }
+
+    TEXT_NEGATIVE_CLUES = {
+        "terrible", "worst", "horrible", "awful", "bad", "waste", "broken",
+        "defect", "bug", "glitch", "crash", "freeze", "fake", "nakli", "bekar"
+    }
+
+    SARCASTIC_PHRASES = [
+        "clown moment", "wah kya", "pure genius", "what an update",
+        "thanks a lot for breaking", "as expected from", "so called"
+    ]
+
+    @classmethod
+    def analyze_comment(
+        cls,
+        raw_text: str,
+        cleaned_text: str,
+        base_sarcastic: bool = False,
+        star_rating: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Calculates irony_sarcasm_detected, confidence_score, and subjectivity_score.
+        """
+        lower_raw = raw_text.lower()
+        lower_clean = cleaned_text.lower()
+
+        pos_emojis_found = [e for e in DEEPMOJI_POSITIVE_SET if e in raw_text]
+        neg_emojis_found = [e for e in DEEPMOJI_NEGATIVE_SET if e in raw_text]
+
+        has_pos_emoji = len(pos_emojis_found) > 0
+        has_neg_emoji = len(neg_emojis_found) > 0
+
+        words = set(re.findall(r"\b\w+\b", lower_clean))
+        has_pos_words = any(w in words for w in cls.TEXT_POSITIVE_CLUES)
+        has_neg_words = any(w in words for w in cls.TEXT_NEGATIVE_CLUES)
+
+        # Conflict Detection: Positive text + Negative Emojis (e.g. "Best phone ever 🤡😡👎")
+        is_emoji_conflict = (has_pos_words and has_neg_emoji and not has_pos_emoji)
+        
+        # Sarcastic keyword check
+        has_sarcastic_phrase = any(phrase in lower_raw for phrase in cls.SARCASTIC_PHRASES)
+
+        irony_sarcasm = base_sarcastic or is_emoji_conflict or has_sarcastic_phrase
+
+        # Subjectivity scoring: ratio of subjective words + exclamation intensity
+        subj_count = sum(1 for w in words if w in cls.SUBJECTIVE_MARKERS)
+        exclamation_boost = 0.15 if ("!" in raw_text or "?" in raw_text) else 0.0
+        word_count = max(len(words), 1)
+        raw_subj = 0.45 + (subj_count / word_count * 0.40) + exclamation_boost
+        subjectivity_score = round(min(max(raw_subj, 0.20), 0.95), 2)
+
+        # Confidence scoring
+        base_confidence = 0.86
+        if irony_sarcasm:
+            confidence_score = 0.78  # Sarcasm carries nuanced ambiguity
+        elif star_rating is not None:
+            if (star_rating in (4, 5) and has_pos_words) or (star_rating in (1, 2) and has_neg_words):
+                base_confidence += 0.08
+            elif (star_rating in (4, 5) and has_neg_words) or (star_rating in (1, 2) and has_pos_words):
+                base_confidence -= 0.15
+            confidence_score = round(min(max(base_confidence, 0.45), 0.98), 2)
+        else:
+            confidence_score = round(base_confidence, 2)
+
+        return {
+            "irony_sarcasm_detected": irony_sarcasm,
+            "confidence_score": confidence_score,
+            "subjectivity_score": subjectivity_score,
+            "is_emoji_conflict": is_emoji_conflict,
+        }
+
+
 class CommentPreprocessor:
     # URL and promo patterns
     SPAM_URL_PATTERNS = [
@@ -353,7 +457,7 @@ class CommentPreprocessor:
 
         return transformed, False, None
 
-    def preprocess(self, raw_text: str) -> Dict[str, Any]:
+    def preprocess(self, raw_text: str, star_rating: Optional[int] = None) -> Dict[str, Any]:
         """
         Full 4-step preprocessing for a single comment or review.
         Returns dictionary with transformed text and linguistic flags.
@@ -364,10 +468,24 @@ class CommentPreprocessor:
         step4_text, is_sarcastic, override_score = self.handle_sarcasm_and_negations(step3_text)
         final_text = re.sub(r"\s+", " ", step4_text).strip()
 
+        emotion_meta = DeepMojiEmotionEngine.analyze_comment(
+            raw_text=raw_text,
+            cleaned_text=final_text,
+            base_sarcastic=is_sarcastic,
+            star_rating=star_rating,
+        )
+
+        if emotion_meta.get("is_emoji_conflict") and override_score is None:
+            override_score = -0.72
+            is_sarcastic = True
+
         return {
             "raw_text": raw_text,
             "cleaned_text": final_text,
             "is_spam": is_spam,
             "is_sarcastic": is_sarcastic,
             "sarcastic_override_score": override_score,
+            "irony_sarcasm_detected": emotion_meta["irony_sarcasm_detected"],
+            "confidence_score": emotion_meta["confidence_score"],
+            "subjectivity_score": emotion_meta["subjectivity_score"],
         }

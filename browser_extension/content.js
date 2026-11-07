@@ -19,11 +19,15 @@
   const state = window.__sentinelytics_state;
 
   function detectPlatform() {
-    const host = window.location.hostname;
+    const host = window.location.hostname.toLowerCase();
     if (host.includes("youtube.com")) return "youtube";
     if (host.includes("instagram.com")) return "instagram";
     if (host.includes("flipkart.com")) return "flipkart";
     if (host.includes("amazon.in") || host.includes("amazon.com")) return "amazon";
+    if (host.includes("myntra.com")) return "myntra";
+    if (host.includes("meesho.com")) return "meesho";
+    if (host.includes("nykaa.com")) return "nykaa";
+    if (host.includes("ajio.com")) return "ajio";
     return "unsupported";
   }
 
@@ -63,6 +67,26 @@
       if (titleElem && titleElem.textContent.trim()) {
         title = titleElem.textContent.trim();
       }
+    } else if (platform === "myntra") {
+      const match = url.match(/\/(\d+)\/buy/) || url.match(/\/buy\/(\d+)/);
+      postId = match ? match[1] : (url.split("/").filter(Boolean).pop() || "myntra_item");
+      const titleElem = document.querySelector(".pdp-name, .pdp-title, h1");
+      if (titleElem && titleElem.textContent.trim()) title = titleElem.textContent.trim();
+    } else if (platform === "meesho") {
+      const match = url.match(/\/p\/([a-zA-Z0-9]+)/);
+      postId = match ? match[1] : (url.split("/").filter(Boolean).pop() || "meesho_item");
+      const titleElem = document.querySelector("h1, span[class*='ProductTitle']");
+      if (titleElem && titleElem.textContent.trim()) title = titleElem.textContent.trim();
+    } else if (platform === "nykaa") {
+      const match = url.match(/\/p\/(\d+)/) || url.match(/productId=(\d+)/);
+      postId = match ? match[1] : (url.split("/").filter(Boolean).pop() || "nykaa_item");
+      const titleElem = document.querySelector("h1, .product-title");
+      if (titleElem && titleElem.textContent.trim()) title = titleElem.textContent.trim();
+    } else if (platform === "ajio") {
+      const match = url.match(/\/p\/([a-zA-Z0-9_]+)/);
+      postId = match ? match[1] : (url.split("/").filter(Boolean).pop() || "ajio_item");
+      const titleElem = document.querySelector("h1.prod-title, h1, .brand-name");
+      if (titleElem && titleElem.textContent.trim()) title = titleElem.textContent.trim();
     }
 
     return { postId, title };
@@ -415,12 +439,146 @@
     });
   }
 
+
+  // =========================================================================
+  // 5b. Myntra / Meesho / Nykaa / Ajio Extractors
+  // =========================================================================
+  function extractMyntraReviews(root = document) {
+    const cards = root.querySelectorAll(".user-review-reviewTextWrapper, div[class*='user-review'], div[class*='UserReview'], .detailed-reviews-userReviewsContainer > div");
+    cards.forEach((card, idx) => {
+      const textElem = card.querySelector(".user-review-reviewTextWrapper, div[class*='reviewText'], p");
+      const text = textElem ? textElem.textContent.trim() : card.textContent.trim();
+      if (!text || text.length < 10) return;
+
+      let stars = null;
+      const starElem = card.querySelector(".user-review-starRating, span[class*='star']");
+      if (starElem) {
+        const m = starElem.textContent.match(/([1-5])/);
+        if (m) stars = parseInt(m[1], 10);
+      }
+
+      let author = `buyer_${idx}`;
+      const authorElem = card.querySelector(".user-review-leftContainer span, span[class*='userName']");
+      if (authorElem && authorElem.textContent.trim()) author = authorElem.textContent.trim();
+
+      const key = `${text.slice(0, 40)}_${stars || 0}`;
+      if (!state.collectedCommentsMap.has(key)) {
+        state.collectedCommentsMap.set(key, {
+          text,
+          author,
+          timestamp: new Date().toISOString(),
+          likes: 0,
+          star_rating: stars,
+          verified_purchase: true,
+          platform: "myntra"
+        });
+      }
+    });
+  }
+
+  function extractMeeshoReviews(root = document) {
+    const cards = root.querySelectorAll("div[class*='ReviewCard'], div[class*='ReviewTile'], div[class*='UserReview']");
+    cards.forEach((card, idx) => {
+      const textNodes = card.querySelectorAll("span, p");
+      let text = "";
+      for (const n of textNodes) {
+        const t = n.textContent.trim();
+        if (t.length >= 15 && !t.includes("Verified") && !t.includes("Helpful")) {
+          text = t;
+          break;
+        }
+      }
+      if (!text && card.textContent.length >= 15) text = card.textContent.trim();
+      if (!text || text.length < 10) return;
+
+      let stars = null;
+      const mStar = card.textContent.match(/([1-5])\s*★/);
+      if (mStar) stars = parseInt(mStar[1], 10);
+
+      const key = `${text.slice(0, 40)}_${stars || 0}`;
+      if (!state.collectedCommentsMap.has(key)) {
+        state.collectedCommentsMap.set(key, {
+          text,
+          author: `meesho_buyer_${idx}`,
+          timestamp: new Date().toISOString(),
+          likes: 0,
+          star_rating: stars,
+          verified_purchase: true,
+          platform: "meesho"
+        });
+      }
+    });
+  }
+
+  function extractNykaaReviews(root = document) {
+    const cards = root.querySelectorAll("div[class*='review-wrapper'], div[class*='ReviewCard'], div[class*='review-card'], [data-test-id='review-card']");
+    cards.forEach((card, idx) => {
+      const textElem = card.querySelector("p, .review-description, div[class*='description']");
+      const text = textElem ? textElem.textContent.trim() : card.textContent.trim();
+      if (!text || text.length < 10) return;
+
+      let stars = null;
+      const starElem = card.querySelector("[class*='rating'], [class*='star']");
+      if (starElem) {
+        const m = starElem.textContent.match(/([1-5])/);
+        if (m) stars = parseInt(m[1], 10);
+      }
+
+      let author = `nykaa_shopper_${idx}`;
+      const authorElem = card.querySelector(".name, [class*='author']");
+      if (authorElem && authorElem.textContent.trim()) author = authorElem.textContent.trim();
+
+      const key = `${text.slice(0, 40)}_${stars || 0}`;
+      if (!state.collectedCommentsMap.has(key)) {
+        state.collectedCommentsMap.set(key, {
+          text,
+          author,
+          timestamp: new Date().toISOString(),
+          likes: 0,
+          star_rating: stars,
+          verified_purchase: true,
+          platform: "nykaa"
+        });
+      }
+    });
+  }
+
+  function extractAjioReviews(root = document) {
+    const cards = root.querySelectorAll("div[class*='review-card'], div[class*='customer-review'], div[class*='ReviewCard']");
+    cards.forEach((card, idx) => {
+      const textElem = card.querySelector("p, .review-text, div[class*='review-desc']");
+      const text = textElem ? textElem.textContent.trim() : card.textContent.trim();
+      if (!text || text.length < 10) return;
+
+      let stars = null;
+      const mStar = card.textContent.match(/([1-5])(?:\.0)?\s*★/);
+      if (mStar) stars = parseInt(mStar[1], 10);
+
+      const key = `${text.slice(0, 40)}_${stars || 0}`;
+      if (!state.collectedCommentsMap.has(key)) {
+        state.collectedCommentsMap.set(key, {
+          text,
+          author: `ajio_customer_${idx}`,
+          timestamp: new Date().toISOString(),
+          likes: 0,
+          star_rating: stars,
+          verified_purchase: true,
+          platform: "ajio"
+        });
+      }
+    });
+  }
+
   function runExtraction() {
     const platform = detectPlatform();
     if (platform === "youtube") extractYouTubeComments();
     else if (platform === "instagram") extractInstagramComments();
     else if (platform === "flipkart") extractFlipkartReviews();
     else if (platform === "amazon") extractAmazonReviews();
+    else if (platform === "myntra") extractMyntraReviews();
+    else if (platform === "meesho") extractMeeshoReviews();
+    else if (platform === "nykaa") extractNykaaReviews();
+    else if (platform === "ajio") extractAjioReviews();
 
     // If specific extractors found nothing on the active tab, invoke universal structural fallback
     if (state.collectedCommentsMap.size === 0) {
@@ -575,4 +733,96 @@
   };
 
   chrome.runtime.onMessage.addListener(window.__sentinelytics_listener);
+  // =========================================================================
+  // 7. Floating On-Page "⚡ Analyze with Sentinelytics" Pill
+  // =========================================================================
+  function injectFloatingPill() {
+    const platform = detectPlatform();
+    if (platform === "unsupported") return;
+    if (document.getElementById("sentinelytics-floating-pill")) return;
+
+    const pill = document.createElement("div");
+    pill.id = "sentinelytics-floating-pill";
+    pill.innerHTML = `
+      <span class="s2-icon">⚡</span>
+      <span class="s2-text">Analyze with Sentinelytics</span>
+      <span class="s2-badge" id="s2-comment-counter">${state.collectedCommentsMap.size}</span>
+    `;
+
+    pill.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+
+      const textElem = pill.querySelector(".s2-text");
+      const iconElem = pill.querySelector(".s2-icon");
+      const prevText = textElem.textContent;
+      textElem.textContent = "Extracting & Analyzing...";
+      iconElem.className = "s2-loading";
+
+      try {
+        runExtraction();
+        const comments = Array.from(state.collectedCommentsMap.values());
+        const meta = detectPostIdAndTitle(platform);
+
+        const payload = {
+          post_url: window.location.href,
+          post_id: meta.postId,
+          title: meta.title,
+          platform: platform,
+          comments: comments.length > 0 ? comments : [],
+          model_option: "vader_hybrid"
+        };
+
+        const res = await fetch("http://localhost:8000/api/ingest-browser", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        textElem.textContent = `Analyzed (${data.total_valid_comments || comments.length})!`;
+        iconElem.className = "s2-icon";
+        iconElem.textContent = "✅";
+
+        const dashboardUrl = `http://localhost:8000/?post_id=${encodeURIComponent(data.post_id || meta.postId)}`;
+        window.open(dashboardUrl, "_blank");
+
+        setTimeout(() => {
+          textElem.textContent = prevText;
+          iconElem.textContent = "⚡";
+        }, 3000);
+      } catch (err) {
+        console.error("[Sentinelytics] Floating pill analysis error:", err);
+        textElem.textContent = "Server Offline (Check 8000)";
+        iconElem.className = "s2-icon";
+        iconElem.textContent = "⚠️";
+        setTimeout(() => {
+          textElem.textContent = prevText;
+          iconElem.textContent = "⚡";
+        }, 4000);
+      }
+    });
+
+    document.body.appendChild(pill);
+
+    // Periodic badge update
+    setInterval(() => {
+      const badge = document.getElementById("s2-comment-counter");
+      if (badge) {
+        badge.textContent = state.collectedCommentsMap.size;
+      }
+    }, 2000);
+  }
+
+  // Inject floating pill button if on a supported page
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", injectFloatingPill);
+  } else {
+    injectFloatingPill();
+  }
+
 })();
