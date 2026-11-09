@@ -86,6 +86,7 @@ export interface CachedReport {
   recommendations?: string[] | null;
   overall_confidence_score?: number | null;
   overall_subjectivity_score?: number | null;
+  sarcastic_comments_count?: number;
 }
 
 export interface HistoryItem {

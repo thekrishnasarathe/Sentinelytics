@@ -32,8 +32,8 @@ export const SentimentDonutChart: React.FC<SentimentDonutChartProps> = ({
   const netScore = posRow && negRow ? Math.round(posRow.percentage - negRow.percentage) : 0;
 
   return (
-    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur-sm flex flex-col h-full">
-      <div className="flex items-center justify-between pb-3 border-b border-slate-800/80 mb-3">
+    <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-5 shadow-xl hover:border-slate-700/80 transition-all backdrop-blur-sm flex flex-col h-full">
+      <div className="flex items-center justify-between pb-3 border-b border-[#1e293b] mb-3">
         <div className="flex items-center gap-2">
           <Activity className="w-5 h-5 text-indigo-400" />
           <h3 className="text-base font-semibold text-slate-100">Sentiment Breakdown</h3>
@@ -121,11 +121,11 @@ export const SentimentDonutChart: React.FC<SentimentDonutChartProps> = ({
       </div>
 
       {/* Legend & Stats Pills */}
-      <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-800/60 mt-2">
+      <div className="grid grid-cols-3 gap-2 pt-3 border-t border-[#1e293b] mt-2">
         {chartData.map((item) => (
           <div
             key={item.name}
-            className="flex flex-col items-center p-2 rounded-xl bg-slate-800/40 border border-slate-700/40"
+            className="flex flex-col items-center p-2 rounded-xl bg-[#0b1120] border border-[#1e293b]"
           >
             <div className="flex items-center gap-1.5 mb-0.5">
               <span

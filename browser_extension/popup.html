@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sentinelytics Collector</title>
+  <title>Sentinelytics Collector & Instant Preview</title>
   <style>
     * {
       box-sizing: border-box;
@@ -12,11 +12,12 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
     body {
-      width: 360px;
-      background-color: #0f172a;
+      width: 380px;
+      background-color: #090d16;
       color: #f1f5f9;
       padding: 16px;
       user-select: none;
+      overflow-x: hidden;
     }
     .header {
       display: flex;
@@ -24,7 +25,7 @@
       justify-content: space-between;
       border-bottom: 1px solid #1e293b;
       padding-bottom: 12px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
     }
     .brand {
       display: flex;
@@ -34,143 +35,348 @@
     .logo-badge {
       width: 28px;
       height: 28px;
-      background: linear-gradient(135deg, #059669, #0284c7);
-      border-radius: 6px;
+      background: linear-gradient(135deg, #10b981, #6366f1);
+      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 800;
-      font-size: 14px;
+      font-size: 13px;
       color: white;
+      box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
     }
     .title {
-      font-size: 15px;
-      font-weight: 700;
+      font-size: 14px;
+      font-weight: 800;
       color: #f8fafc;
-      letter-spacing: -0.2px;
+      letter-spacing: -0.3px;
     }
     .version {
       font-size: 10px;
-      background: #1e293b;
+      background: #0f172a;
       color: #38bdf8;
-      padding: 2px 6px;
+      padding: 2px 7px;
       border-radius: 9999px;
-      font-weight: 600;
-      border: 1px solid #334155;
+      font-weight: 700;
+      border: 1px solid #1e293b;
+      font-mono: monospace;
     }
     .status-card {
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 8px;
-      padding: 12px;
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 10px 12px;
       margin-bottom: 12px;
     }
     .status-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
     .status-label {
-      font-size: 12px;
-      color: #94a3b8;
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
     .platform-pill {
-      font-size: 11px;
-      font-weight: 600;
-      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
       border-radius: 6px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
-    .platform-youtube { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
-    .platform-instagram { background: rgba(236, 72, 153, 0.2); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.4); }
-    .platform-flipkart { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
-    .platform-amazon { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
-    .platform-myntra { background: rgba(244, 63, 94, 0.2); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.4); }
-    .platform-meesho { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
-    .platform-nykaa { background: rgba(236, 72, 153, 0.2); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.4); }
-    .platform-ajio { background: rgba(20, 184, 166, 0.2); color: #2dd4bf; border: 1px solid rgba(20, 184, 166, 0.4); }
-    .platform-unsupported { background: #334155; color: #94a3b8; }
+    .platform-youtube { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); }
+    .platform-instagram { background: rgba(236, 72, 153, 0.15); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.35); }
+    .platform-flipkart { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35); }
+    .platform-amazon { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
+    .platform-myntra { background: rgba(244, 63, 94, 0.15); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.35); }
+    .platform-meesho { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); }
+    .platform-nykaa { background: rgba(236, 72, 153, 0.15); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.35); }
+    .platform-ajio { background: rgba(20, 184, 166, 0.15); color: #2dd4bf; border: 1px solid rgba(20, 184, 166, 0.35); }
+    .platform-unsupported { background: #1e293b; color: #94a3b8; }
     
     .item-title {
-      font-size: 12px;
-      font-weight: 500;
+      font-size: 11px;
+      font-weight: 600;
       color: #e2e8f0;
-      line-height: 1.4;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      margin-top: 4px;
+      margin-top: 2px;
     }
-    .counter-box {
-      background: #020617;
+
+    /* Live Mini Sentiment Gauge Container */
+    .preview-card {
+      background: #0f172a;
       border: 1px solid #1e293b;
-      border-radius: 8px;
-      padding: 14px;
-      text-align: center;
-      margin-bottom: 14px;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
     }
-    .counter-number {
-      font-size: 32px;
-      font-weight: 800;
-      color: #10b981;
+    .preview-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .preview-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .gauge-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      gap: 12px;
+      padding: 4px 0 8px 0;
+    }
+    .donut-svg {
+      width: 86px;
+      height: 86px;
+      transform: rotate(-90deg);
+      border-radius: 50%;
+    }
+    .donut-circle-bg {
+      fill: none;
+      stroke: #1e293b;
+      stroke-width: 8;
+    }
+    .donut-circle {
+      fill: none;
+      stroke-width: 8;
+      stroke-linecap: round;
+      transition: stroke-dasharray 0.5s ease, stroke-dashoffset 0.5s ease;
+    }
+    .donut-neg { stroke: #f43f5e; }
+    .donut-neu { stroke: #38bdf8; }
+    .donut-pos { stroke: #10b981; }
+
+    .gauge-center-text {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .gauge-kpi {
+      font-size: 16px;
+      font-weight: 900;
+      color: #ffffff;
+      line-height: 1;
       font-variant-numeric: tabular-nums;
     }
-    .counter-label {
-      font-size: 11px;
+    .gauge-sub {
+      font-size: 9px;
+      font-weight: 700;
+      color: #94a3b8;
       text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: #64748b;
+      letter-spacing: 0.5px;
       margin-top: 2px;
+    }
+
+    .legend-column {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
       font-weight: 600;
     }
+    .legend-label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+    }
+    .dot-neg { background: #f43f5e; box-shadow: 0 0 6px rgba(244, 63, 94, 0.4); }
+    .dot-neu { background: #38bdf8; }
+    .dot-pos { background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.4); }
+
+    /* Executive Signal Pills */
+    .signal-pills {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 10px;
+      border-top: 1px solid #1e293b;
+      padding-top: 10px;
+    }
+    .health-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 10px;
+      border-radius: 8px;
+      background: rgba(244, 63, 94, 0.12);
+      color: #fb7185;
+      border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+    .health-badge.favorable {
+      background: rgba(16, 185, 129, 0.12);
+      color: #34d399;
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+    .sarcasm-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(234, 179, 8, 0.12);
+      color: #fde047;
+      border: 1px solid rgba(234, 179, 8, 0.25);
+    }
+    .issues-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+    .issue-tag {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 5px;
+      background: #1e293b;
+      color: #cbd5e1;
+      border: 1px solid #334155;
+    }
+
+    /* Mini 3 Comment Cards */
+    .comments-preview-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 10px;
+      margin-bottom: 6px;
+    }
+    .mini-comments-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 155px;
+      overflow-y: auto;
+    }
+    .mini-comment-card {
+      background: #090d16;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 7px 9px;
+      font-size: 11px;
+    }
+    .comment-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 3px;
+    }
+    .comment-author {
+      font-weight: 700;
+      color: #cbd5e1;
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 140px;
+    }
+    .comment-chip {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .chip-Negative { background: rgba(244, 63, 94, 0.2); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.3); }
+    .chip-Positive { background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .chip-Neutral { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .comment-text-body {
+      color: #94a3b8;
+      line-height: 1.35;
+      font-size: 10px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* Buttons */
     .btn-group {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     .btn {
       width: 100%;
-      padding: 10px 14px;
+      padding: 11px 14px;
       border: none;
-      border-radius: 6px;
-      font-size: 13px;
-      font-weight: 600;
+      border-radius: 9px;
+      font-size: 12px;
+      font-weight: 700;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      transition: all 0.15s ease;
+      gap: 7px;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .btn-primary {
-      background: #10b981;
-      color: #022c22;
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
     }
     .btn-primary:hover:not(:disabled) {
-      background: #059669;
-      color: #ffffff;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(16, 185, 129, 0.5);
     }
     .btn-secondary {
-      background: #1e293b;
+      background: #0f172a;
       color: #e2e8f0;
-      border: 1px solid #334155;
+      border: 1px solid #1e293b;
     }
     .btn-secondary:hover:not(:disabled) {
-      background: #334155;
+      background: #1e293b;
+      border-color: #334155;
     }
     .btn-stop {
       background: #ef4444;
       color: white;
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
     }
     .btn-stop:hover:not(:disabled) {
       background: #dc2626;
     }
     .btn:disabled {
-      opacity: 0.5;
+      opacity: 0.45;
       cursor: not-allowed;
+      transform: none !important;
+      box-shadow: none !important;
     }
     .status-banner {
       font-size: 11px;
@@ -178,22 +384,25 @@
       text-align: center;
       min-height: 16px;
       line-height: 1.4;
+      margin-bottom: 6px;
     }
-    .status-banner.success { color: #34d399; }
-    .status-banner.error { color: #f87171; }
+    .status-banner.success { color: #34d399; font-weight: 600; }
+    .status-banner.error { color: #f87171; font-weight: 600; }
+    
     .footer {
       border-top: 1px solid #1e293b;
-      padding-top: 10px;
-      margin-top: 12px;
+      padding-top: 8px;
+      margin-top: 8px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 11px;
+      font-size: 10px;
       color: #64748b;
     }
     .footer a {
       color: #38bdf8;
       text-decoration: none;
+      font-weight: 600;
     }
     .footer a:hover {
       text-decoration: underline;
@@ -206,32 +415,89 @@
       <div class="logo-badge">S</div>
       <div class="title">Sentinelytics</div>
     </div>
-    <span class="version">LIVE COLLECTOR</span>
+    <span class="version">LIVE PREVIEW</span>
   </div>
 
   <div class="status-card">
     <div class="status-row">
-      <span class="status-label">Active Tab:</span>
+      <span class="status-label">Active Channel:</span>
       <span id="platformPill" class="platform-pill platform-unsupported">Detecting...</span>
     </div>
     <div class="status-label">Target Page:</div>
     <div id="targetTitle" class="item-title">Checking active webpage...</div>
   </div>
 
-  <div class="counter-box">
-    <div id="commentCount" class="counter-number">0</div>
-    <div class="counter-label">Authentic Comments Extracted</div>
+  <!-- In-Browser Instant Sentiment Preview -->
+  <div class="preview-card" id="sentimentPreviewCard">
+    <div class="preview-header">
+      <span class="preview-title">
+        <span>⚡ Live Polarity Gauge</span>
+      </span>
+      <span id="extractedCountBadge" style="font-size: 10px; font-weight: 800; color: #38bdf8; font-family: monospace;">
+        0 comments
+      </span>
+    </div>
+
+    <div class="gauge-wrapper">
+      <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 86px; height: 86px;">
+        <svg class="donut-svg" viewBox="0 0 100 100">
+          <circle class="donut-circle-bg" cx="50" cy="50" r="38"></circle>
+          <circle id="donutNeg" class="donut-circle donut-neg" cx="50" cy="50" r="38" stroke-dasharray="0 238.76" stroke-dashoffset="0"></circle>
+          <circle id="donutNeu" class="donut-circle donut-neu" cx="50" cy="50" r="38" stroke-dasharray="0 238.76" stroke-dashoffset="0"></circle>
+          <circle id="donutPos" class="donut-circle donut-pos" cx="50" cy="50" r="38" stroke-dasharray="0 238.76" stroke-dashoffset="0"></circle>
+        </svg>
+        <div class="gauge-center-text">
+          <span id="gaugeCenterPct" class="gauge-kpi">--%</span>
+          <span id="gaugeCenterLabel" class="gauge-sub">POLARITY</span>
+        </div>
+      </div>
+
+      <div class="legend-column">
+        <div class="legend-row">
+          <span class="legend-label"><span class="dot dot-neg"></span><span>Negative</span></span>
+          <span id="pctNeg" style="color: #f43f5e;">0%</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-label"><span class="dot dot-neu"></span><span>Neutral</span></span>
+          <span id="pctNeu" style="color: #38bdf8;">0%</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-label"><span class="dot dot-pos"></span><span>Positive</span></span>
+          <span id="pctPos" style="color: #10b981;">0%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Instant Executive Signal Pills -->
+    <div class="signal-pills" id="signalPillsContainer">
+      <div id="healthBadge" class="health-badge">
+        <span>Awaiting comment extraction...</span>
+      </div>
+      <div id="sarcasmPill" class="sarcasm-pill" style="display: none;">
+        <span>⚡ 0 Sarcastic Comments (Text-Emoji Conflict)</span>
+      </div>
+      <div class="issues-row" id="topIssuesContainer" style="display: none;">
+        <span style="font-size: 10px; color: #64748b; font-weight: 600;">Top Issues:</span>
+        <span id="issue1" class="issue-tag">--</span>
+        <span id="issue2" class="issue-tag">--</span>
+      </div>
+    </div>
+
+    <!-- Mini 3 Comment Cards Preview -->
+    <div class="comments-preview-title">Live Comment Stream (Top 3)</div>
+    <div class="mini-comments-list" id="miniCommentsList">
+      <div style="font-size: 11px; color: #64748b; text-align: center; padding: 12px 0;">
+        Scroll post or click auto-collector to preview real comments.
+      </div>
+    </div>
   </div>
 
   <div class="btn-group">
     <button id="toggleScrollBtn" class="btn btn-secondary" disabled>
       <span>⚡</span> <span id="toggleScrollText">Start Auto-Collector</span>
     </button>
-    <button id="paginateBtn" class="btn btn-secondary" style="display: none;">
-      <span>📑</span> <span>Fetch Next 5 Pages</span>
-    </button>
     <button id="sendToDashboardBtn" class="btn btn-primary" disabled>
-      <span>🚀</span> <span>Send & Analyze in Dashboard</span>
+      <span>Open Deep-Dive Analytics Dashboard ➔</span>
     </button>
   </div>
 
@@ -245,4 +511,3 @@
   <script src="popup.js"></script>
 </body>
 </html>
-

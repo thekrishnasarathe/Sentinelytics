@@ -172,6 +172,12 @@ def test_sarcasm_and_negation_classification(preprocessor, nlp_engine):
         "awesome bug guys, completely broken",
         "camera feature doesn't load and won't open",
         "nahi chal raha hai bilkul",
+        "mast update 🤡",
+        "badiya feature 💔",
+        "great service 😭",
+        "awesome battery life 🤮",
+        "love this product 👎",
+        "badiya packaging 😤",
     ]
 
     for raw_text in negative_cases:
@@ -184,6 +190,9 @@ def test_sarcasm_and_negation_classification(preprocessor, nlp_engine):
             f"Expected Negative for '{raw_text}', but got {sentiment} (score={score})"
         )
         assert score <= -0.05, f"Score for '{raw_text}' should be <= -0.05, got {score}"
+        if any(e in raw_text for e in ["😡", "🤡", "💔", "😭", "🤮", "👎", "😤"]) and any(w in raw_text.lower() for w in ["great", "mast", "badiya", "awesome", "love"]):
+            assert p_res["is_sarcastic"] is True, f"Expected is_sarcastic=True for '{raw_text}'"
+            assert p_res["sarcastic_override_score"] == -0.75, f"Expected override score -0.75 for '{raw_text}'"
 
 
 def test_flagged_youtube_demo_dataset_and_root_causes(tmp_path):
@@ -844,3 +853,29 @@ async def test_instagram_browser_ingestion_and_no_overwrite():
     assert analyze_res.total_valid_comments == 500
     assert "Authentic user comment #0" in analyze_res.sample_comments[0].raw_text
     assert "Browser Extension" in analyze_res.data_source_badge
+
+
+@pytest.mark.anyio
+async def test_quick_analyze_endpoint_and_sarcasm_counter():
+    """Verify POST /api/analyze-quick instant preview and sarcasm counting."""
+    from app.main import analyze_quick
+
+    payload = {
+        "comments": [
+            {"author": "user1", "text": "great update guys 🤡 broken completely"},
+            {"author": "user2", "text": "badiya battery backup 😭 drains in 1 hour"},
+            {"author": "user3", "text": "fantastic performance, smooth and snappy"},
+            {"author": "user4", "text": "okay average video nothing special"},
+            {"author": "user5", "text": "app crash freeze whenever I click login"},
+        ],
+        "platform": "instagram"
+    }
+
+    res = await analyze_quick(payload)
+    assert res["total_comments"] == 5
+    assert res["negative_count"] >= 3
+    assert res["positive_count"] >= 1
+    assert res["sarcastic_count"] >= 2
+    assert isinstance(res["health_badge"], str)
+    assert len(res["preview_comments"]) == 3
+    assert any(c["is_sarcastic"] for c in res["preview_comments"])

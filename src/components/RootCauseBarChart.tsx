@@ -37,8 +37,8 @@ export const RootCauseBarChart: React.FC<RootCauseBarChartProps> = ({
   const totalNegativeInCauses = chartData.reduce((acc, curr) => acc + curr.count, 0);
 
   return (
-    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur-sm flex flex-col h-full">
-      <div className="flex items-center justify-between pb-3 border-b border-slate-800/80 mb-3">
+    <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-5 shadow-xl hover:border-slate-700/80 transition-all backdrop-blur-sm flex flex-col h-full">
+      <div className="flex items-center justify-between pb-3 border-b border-[#1e293b] mb-3">
         <div className="flex items-center gap-2">
           <AlertCircle className="w-5 h-5 text-rose-400" />
           <div>

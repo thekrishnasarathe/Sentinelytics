@@ -127,9 +127,12 @@ class DeepMojiEmotionEngine:
         "bekar", "worthless", "paisa", "rubbish", "horrible", "wonderful"
     }
 
+    MOCKING_NEGATIVE_EMOJIS = {"😡", "😭", "💔", "🤮", "😤", "🤡", "👎"}
+
     TEXT_POSITIVE_CLUES = {
         "love", "loved", "great", "awesome", "good", "amazing", "best", "superb",
-        "excellent", "perfect", "favorite", "helpful", "mast", "badhiya", "kamaal"
+        "excellent", "perfect", "favorite", "helpful", "mast", "badhiya", "badiya", "kamaal",
+        "nice", "fantastic", "zabardast", "badiyaa", "solid", "top"
     }
 
     TEXT_NEGATIVE_CLUES = {
@@ -162,12 +165,15 @@ class DeepMojiEmotionEngine:
         has_pos_emoji = len(pos_emojis_found) > 0
         has_neg_emoji = len(neg_emojis_found) > 0
 
-        words = set(re.findall(r"\b\w+\b", lower_clean))
+        mocking_emojis_found = [e for e in cls.MOCKING_NEGATIVE_EMOJIS if e in raw_text]
+        has_mocking_emoji = len(mocking_emojis_found) > 0
+
+        words = set(re.findall(r"\b\w+\b", f"{lower_raw} {lower_clean}"))
         has_pos_words = any(w in words for w in cls.TEXT_POSITIVE_CLUES)
         has_neg_words = any(w in words for w in cls.TEXT_NEGATIVE_CLUES)
 
-        # Conflict Detection: Positive text + Negative Emojis (e.g. "Best phone ever 🤡😡👎")
-        is_emoji_conflict = (has_pos_words and has_neg_emoji and not has_pos_emoji)
+        # Conflict Detection: Positive text (great, awesome, mast, love, badiya) + Negative/Mocking Emojis (😡, 😭, 💔, 🤮, 😤, 🤡, 👎)
+        is_emoji_conflict = bool(has_pos_words and (has_mocking_emoji or (has_neg_emoji and not has_pos_emoji)))
         
         # Sarcastic keyword check
         has_sarcastic_phrase = any(phrase in lower_raw for phrase in cls.SARCASTIC_PHRASES)
@@ -475,8 +481,8 @@ class CommentPreprocessor:
             star_rating=star_rating,
         )
 
-        if emotion_meta.get("is_emoji_conflict") and override_score is None:
-            override_score = -0.72
+        if emotion_meta.get("is_emoji_conflict"):
+            override_score = -0.75
             is_sarcastic = True
 
         return {

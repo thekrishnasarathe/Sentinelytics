@@ -271,6 +271,7 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
 
     # Provide 100% complete list of processed comments without arbitrary truncations
     sample_preview = processed_comments
+    sarcastic_count = sum(1 for c in processed_comments if getattr(c, "irony_sarcasm_detected", False) or getattr(c, "is_sarcastic", False))
 
     # Build CachedReport
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
@@ -304,13 +305,12 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         recommendations=insights["recommendations"],
         overall_confidence_score=insights["overall_confidence_score"],
         overall_subjectivity_score=insights["overall_subjectivity_score"],
+        sarcastic_comments_count=sarcastic_count,
     )
 
     # Step E: Dual Persistence (Atomic Cache + SQLite sentiment_hub.db)
     cache_mgr.save_report(report)
     history_db.save_report_to_db(report)
-
-    return report
 
     return report
 
@@ -504,6 +504,111 @@ async def ingest_browser(request: BrowserIngestRequest, background_tasks: Backgr
         raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process browser payload: {str(e)}")
+
+
+@app.post("/api/analyze-quick")
+async def analyze_quick(payload: Dict[str, Any]):
+    """
+    Rapid on-the-fly sentiment scan across browser-extracted comments for
+    instant in-extension preview and live progress gauge (<10ms).
+    """
+    raw_comments = payload.get("comments", [])
+    if not raw_comments:
+        return {
+            "total_comments": 0,
+            "positive_pct": 0.0,
+            "negative_pct": 0.0,
+            "neutral_pct": 0.0,
+            "positive_count": 0,
+            "negative_count": 0,
+            "neutral_count": 0,
+            "is_high_negative": False,
+            "health_badge": "Awaiting Comments...",
+            "sarcastic_count": 0,
+            "top_issues": [],
+            "preview_comments": [],
+        }
+
+    pos_count = 0
+    neg_count = 0
+    neu_count = 0
+    sarcastic_count = 0
+    scored_items = []
+    neg_words_freq: Dict[str, int] = {}
+
+    preproc = CommentPreprocessor()
+    for c in raw_comments:
+        raw_text = c.get("raw_text") or c.get("text") or ""
+        if not raw_text.strip():
+            continue
+        p = preproc.preprocess(raw_text)
+        if p["is_spam"]:
+            continue
+        score, sentiment = nlp_engine.analyze_polarity_vader(
+            p["cleaned_text"], p["sarcastic_override_score"]
+        )
+        is_sarc = p.get("irony_sarcasm_detected", False) or p.get("is_sarcastic", False)
+        if is_sarc:
+            sarcastic_count += 1
+
+        if sentiment == "Positive":
+            pos_count += 1
+        elif sentiment == "Negative":
+            neg_count += 1
+            for w in re.findall(r"\b[a-zA-Z]{4,15}\b", p["cleaned_text"].lower()):
+                if w not in {"this", "that", "with", "have", "from", "they", "will", "what", "video", "post", "product", "terrible", "bad"}:
+                    neg_words_freq[w] = neg_words_freq.get(w, 0) + 1
+        else:
+            neu_count += 1
+
+        author = c.get("author") or c.get("anonymized_author_id") or "user"
+        scored_items.append({
+            "author": author,
+            "text": raw_text[:140],
+            "sentiment": sentiment,
+            "score": score,
+            "is_sarcastic": is_sarc,
+        })
+
+    total = pos_count + neg_count + neu_count
+    if total == 0:
+        total = 1
+
+    pos_pct = round((pos_count / total) * 100, 1)
+    neg_pct = round((neg_count / total) * 100, 1)
+    neu_pct = round((neu_count / total) * 100, 1)
+
+    is_high_neg = neg_pct >= 70.0
+    if is_high_neg:
+        health_badge = f"🚨 {round(neg_pct)}% High Negative Alert"
+    elif neg_pct >= 45.0:
+        health_badge = f"⚠️ {round(neg_pct)}% Critical Negative"
+    elif pos_pct >= 60.0:
+        health_badge = f"✅ {round(pos_pct)}% Favorable"
+    else:
+        health_badge = f"⚖️ {round(neu_pct)}% Balanced Engagement"
+
+    sorted_issues = sorted(neg_words_freq.items(), key=lambda x: x[1], reverse=True)
+    top_issues = [w[0].capitalize() for w in sorted_issues[:2]]
+    if not top_issues:
+        top_issues = ["General Friction", "Quality Variance"] if neg_count > 0 else ["No Active Issues"]
+
+    preview = scored_items[:3]
+
+    return {
+        "total_comments": total,
+        "positive_pct": pos_pct,
+        "negative_pct": neg_pct,
+        "neutral_pct": neu_pct,
+        "positive_count": pos_count,
+        "negative_count": neg_count,
+        "neutral_count": neu_count,
+        "is_high_negative": is_high_neg,
+        "health_badge": health_badge,
+        "sarcastic_count": sarcastic_count,
+        "top_issues": top_issues,
+        "preview_comments": preview,
+    }
 
 
 @app.get("/api/report/{post_id}", response_model=CachedReport)

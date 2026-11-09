@@ -206,6 +206,10 @@ class CachedReport(BaseModel):
         default=0.62,
         description="Aggregated subjective vs objective comment ratio (0.0 to 1.0)"
     )
+    sarcastic_comments_count: Optional[int] = Field(
+        default=0,
+        description="Total count of comments with irony/sarcasm or emoji-text polarity conflict"
+    )
     status: Optional[str] = Field(
         default="ok",
         description="Execution status indicator ('ok', 'success', etc.)"
