@@ -535,12 +535,27 @@ async def analyze_quick(payload: Dict[str, Any]):
     sarcastic_count = 0
     scored_items = []
     neg_words_freq: Dict[str, int] = {}
+    star_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    total_stars = 0
+    star_sum = 0
 
     preproc = CommentPreprocessor()
     for c in raw_comments:
         raw_text = c.get("raw_text") or c.get("text") or ""
         if not raw_text.strip():
             continue
+
+        sr = c.get("star_rating")
+        if sr is not None:
+            try:
+                sri = int(sr)
+                if 1 <= sri <= 5:
+                    star_counts[sri] += 1
+                    star_sum += sri
+                    total_stars += 1
+            except (ValueError, TypeError):
+                pass
+
         p = preproc.preprocess(raw_text)
         if p["is_spam"]:
             continue
@@ -608,6 +623,9 @@ async def analyze_quick(payload: Dict[str, Any]):
         "sarcastic_count": sarcastic_count,
         "top_issues": top_issues,
         "preview_comments": preview,
+        "star_counts": {str(k): v for k, v in star_counts.items()},
+        "total_stars": total_stars,
+        "avg_star": round(star_sum / total_stars, 1) if total_stars > 0 else None,
     }
 
 

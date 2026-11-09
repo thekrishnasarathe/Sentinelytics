@@ -1,6 +1,6 @@
 /**
- * Sentinelytics Extension Popup Controller v3.0
- * Live Sentiment Preview, Gauge Rendering, and Dashboard Sync
+ * Sentinelytics Extension Popup Controller v3.1
+ * Platform-Adaptive Turbo Review Fetcher, Gauge Rendering, and Dashboard Sync
  */
 
 const BACKEND_URL = "http://localhost:8000";
@@ -20,10 +20,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const platformPill = document.getElementById("platformPill");
   const targetTitle = document.getElementById("targetTitle");
   const extractedCountBadge = document.getElementById("extractedCountBadge");
-  const commentCount = document.getElementById("commentCount"); // optional fallback
-  const toggleScrollBtn = document.getElementById("toggleScrollBtn");
-  const toggleScrollText = document.getElementById("toggleScrollText");
-  const paginateBtn = document.getElementById("paginateBtn");
+  const commentCount = document.getElementById("commentCount");
   const sendToDashboardBtn = document.getElementById("sendToDashboardBtn");
   const statusBanner = document.getElementById("statusBanner");
   const backendStatus = document.getElementById("backendStatus");
@@ -46,6 +43,26 @@ document.addEventListener("DOMContentLoaded", async () => {
   const issue1 = document.getElementById("issue1");
   const issue2 = document.getElementById("issue2");
   const miniCommentsList = document.getElementById("miniCommentsList");
+
+  // Star Rating Breakdown elements
+  const starPreviewContainer = document.getElementById("starPreviewContainer");
+  const avgStarBadge = document.getElementById("avgStarBadge");
+
+  // E-Commerce action controls
+  const ecommerceControls = document.getElementById("ecommerceControls");
+  const fetch5PagesBtn = document.getElementById("fetch5PagesBtn");
+  const fetch10PagesBtn = document.getElementById("fetch10PagesBtn");
+  const customPageInput = document.getElementById("customPageInput");
+  const startTurboFetchBtn = document.getElementById("startTurboFetchBtn");
+  const autoConvertReviewsToggle = document.getElementById("autoConvertReviewsToggle");
+  const ecommerceProgressContainer = document.getElementById("ecommerceProgressContainer");
+  const ecommerceProgressBar = document.getElementById("ecommerceProgressBar");
+  const ecommerceProgressText = document.getElementById("ecommerceProgressText");
+
+  // Social Media action controls
+  const socialControls = document.getElementById("socialControls");
+  const toggleScrollBtn = document.getElementById("toggleScrollBtn");
+  const toggleScrollText = document.getElementById("toggleScrollText");
 
   if (openDashboardLink) openDashboardLink.href = DASHBOARD_URL;
 
@@ -125,23 +142,36 @@ document.addEventListener("DOMContentLoaded", async () => {
     const POS_WORDS = [
       "good", "great", "love", "best", "amazing", "awesome", "excellent",
       "perfect", "mast", "badiya", "badhiya", "super", "nice", "fast", "cool",
-      "happy", "liked", "wonderful", "kamaal", "zabardast", "helpful", "gem", "fire"
+      "happy", "liked", "wonderful", "kamaal", "zabardast", "helpful", "gem", "fire",
+      "worth", "genuine", "original", "sturdy", "smooth"
     ];
     const NEG_WORDS = [
       "bad", "worst", "terrible", "poor", "hate", "broken", "fake", "delay",
       "defect", "waste", "scam", "slow", "horribl", "bakwas", "ghatiya",
-      "rubbish", "pathetic", "issue", "problem", "disappoint", "fraud", "cheat"
+      "rubbish", "pathetic", "issue", "problem", "disappoint", "fraud", "cheat",
+      "duplicate", "heating", "battery", "drain", "loose"
     ];
     const MOCKING_EMOJIS = ["😡", "😭", "💔", "🤮", "😤", "🤡", "👎"];
 
     let pos = 0, neg = 0, neu = 0, sarcastic = 0;
     const scored = [];
     const negWordCounts = {};
+    const starCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    let totalStars = 0;
+    let starSum = 0;
 
     for (const c of comments) {
       const text = (c.raw_text || c.text || "").toLowerCase();
       const origText = c.raw_text || c.text || "";
       if (!text.trim()) continue;
+
+      // Track stars if present
+      const star = parseInt(c.star_rating, 10);
+      if (star >= 1 && star <= 5) {
+        starCounts[star]++;
+        starSum += star;
+        totalStars++;
+      }
 
       const hasPos = POS_WORDS.some((w) => text.includes(w));
       const hasNeg = NEG_WORDS.some((w) => text.includes(w));
@@ -150,19 +180,29 @@ document.addEventListener("DOMContentLoaded", async () => {
       let sentiment = "Neutral";
       let isSarcastic = false;
 
-      if (hasPos && hasMocking) {
+      // Star-based sentiment priority if available
+      if (star >= 4) {
+        sentiment = hasMocking ? "Negative" : "Positive";
+        if (hasMocking) { isSarcastic = true; sarcastic++; neg++; }
+        else { pos++; }
+      } else if (star === 1 || star === 2) {
         sentiment = "Negative";
-        isSarcastic = true;
-        sarcastic++;
         neg++;
-      } else if (hasNeg) {
-        sentiment = "Negative";
-        neg++;
-      } else if (hasPos) {
-        sentiment = "Positive";
-        pos++;
       } else {
-        neu++;
+        if (hasPos && hasMocking) {
+          sentiment = "Negative";
+          isSarcastic = true;
+          sarcastic++;
+          neg++;
+        } else if (hasNeg) {
+          sentiment = "Negative";
+          neg++;
+        } else if (hasPos) {
+          sentiment = "Positive";
+          pos++;
+        } else {
+          neu++;
+        }
       }
 
       if (sentiment === "Negative") {
@@ -174,10 +214,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       scored.push({
-        author: c.author || "user",
+        author: c.author || c.anonymized_author_id || "user",
         text: origText.slice(0, 140),
         sentiment,
         is_sarcastic: isSarcastic,
+        star_rating: star || null,
       });
     }
 
@@ -210,10 +251,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       sarcastic_count: sarcastic,
       top_issues: topIssues.length ? topIssues : (neg > 0 ? ["Friction", "Defects"] : ["No Active Issues"]),
       preview_comments: scored.slice(0, 3),
+      star_counts: starCounts,
+      total_stars: totalStars,
+      avg_star: totalStars > 0 ? (starSum / totalStars).toFixed(1) : null,
     };
   }
 
-  // Update Donut SVG, KPIs, and Signals
+  // Update Donut SVG, KPIs, Signals, and Star Breakdown
   function renderSentimentUI(data) {
     if (!data) return;
 
@@ -302,16 +346,38 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     }
 
+    // Star Breakdown Rendering for E-Commerce
+    const isEcom = ["flipkart", "amazon", "myntra", "meesho", "nykaa", "ajio"].includes(currentPlatform);
+    if (starPreviewContainer) {
+      const starCounts = data.star_counts;
+      const totalStars = data.total_stars || 0;
+      if (isEcom && starCounts && totalStars > 0) {
+        starPreviewContainer.style.display = "block";
+        if (avgStarBadge) avgStarBadge.textContent = `${data.avg_star || "4.0"} ★`;
+        for (let s = 1; s <= 5; s++) {
+          const count = starCounts[s] || 0;
+          const pct = Math.round((count / totalStars) * 100);
+          const bar = document.getElementById(`starBar${s}`);
+          const cnt = document.getElementById(`starCount${s}`);
+          if (bar) bar.style.width = `${pct}%`;
+          if (cnt) cnt.textContent = `${count} (${pct}%)`;
+        }
+      } else {
+        starPreviewContainer.style.display = "none";
+      }
+    }
+
     // Top 3 Mini Comments
     if (miniCommentsList && data.preview_comments && data.preview_comments.length > 0) {
       miniCommentsList.innerHTML = data.preview_comments
         .map((c) => {
           const chipClass = `chip-${c.sentiment || "Neutral"}`;
           const sarcBadge = c.is_sarcastic ? ` <span style="color:#fbbf24;font-size:8px;">[Sarcasm]</span>` : "";
+          const starBadge = c.star_rating ? ` <span style="color:#fbbf24;font-size:9px;font-weight:bold;">★${c.star_rating}</span>` : "";
           return `
             <div class="mini-comment-card">
               <div class="comment-card-top">
-                <span class="comment-author">@${escapeHtml(c.author)}</span>
+                <span class="comment-author">@${escapeHtml(c.author)}${starBadge}</span>
                 <span class="comment-chip ${chipClass}">${escapeHtml(c.sentiment)}${sarcBadge}</span>
               </div>
               <div class="comment-text-body">${escapeHtml(c.text)}</div>
@@ -327,7 +393,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (isAnalyzingQuick) return;
     const count = parseInt(extractedCountBadge?.textContent || "0", 10) || 0;
     if (!force && count === lastAnalyzedCount) return;
-    if (count === 0) return;
 
     isAnalyzingQuick = true;
     try {
@@ -339,7 +404,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       lastAnalyzedCount = resp.comments.length;
       if (extractedCountBadge) {
-        extractedCountBadge.textContent = `${resp.comments.length} comments`;
+        extractedCountBadge.textContent = `${resp.comments.length} reviews`;
       }
 
       let scanResult = null;
@@ -354,12 +419,17 @@ document.addEventListener("DOMContentLoaded", async () => {
           scanResult = await fetchRes.json();
         }
       } catch (e) {
-        // Fallback to client-side scanner
         scanResult = null;
       }
 
+      // Merge client-side star counts if server didn't compute them
+      const clientFallback = runClientSideScan(resp.comments);
       if (!scanResult) {
-        scanResult = runClientSideScan(resp.comments);
+        scanResult = clientFallback;
+      } else {
+        scanResult.star_counts = scanResult.star_counts || clientFallback.star_counts;
+        scanResult.total_stars = scanResult.total_stars || clientFallback.total_stars;
+        scanResult.avg_star = scanResult.avg_star || clientFallback.avg_star;
       }
 
       renderSentimentUI(scanResult);
@@ -370,6 +440,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  // Platform-Adaptive UI Switcher
   function updateStatusFromResponse(resp) {
     if (!resp) return;
     currentPlatform = resp.platform || "unsupported";
@@ -385,35 +456,52 @@ document.addEventListener("DOMContentLoaded", async () => {
       targetTitle.textContent = currentTitle || "Active Webpage";
     }
     const cCount = resp.count || 0;
-    if (extractedCountBadge) extractedCountBadge.textContent = `${cCount} comments`;
+    if (extractedCountBadge) {
+      extractedCountBadge.textContent = `${cCount} ${isEcomPlatform(currentPlatform) ? "reviews" : "comments"}`;
+    }
     if (commentCount) commentCount.textContent = cCount;
 
-    if (currentPlatform !== "unsupported") {
-      toggleScrollBtn.disabled = false;
+    const isEcom = isEcomPlatform(currentPlatform);
+    const isSocial = ["youtube", "instagram"].includes(currentPlatform);
+
+    if (isEcom) {
+      if (ecommerceControls) ecommerceControls.style.display = "flex";
+      if (socialControls) socialControls.style.display = "none";
+      if (fetch5PagesBtn) fetch5PagesBtn.disabled = false;
+      if (fetch10PagesBtn) fetch10PagesBtn.disabled = false;
+      if (startTurboFetchBtn) startTurboFetchBtn.disabled = false;
+      sendToDashboardBtn.disabled = cCount === 0;
+
+      if (cCount > 0) {
+        setBanner(`Detected ${cCount} reviews on page. Click Next 5 or 10 Pages to turbo fetch.`, "normal");
+      } else {
+        setBanner("E-Commerce product page ready. Click Fetch Next 5 Pages to collect customer reviews.", "normal");
+      }
+    } else if (isSocial) {
+      if (ecommerceControls) ecommerceControls.style.display = "none";
+      if (socialControls) socialControls.style.display = "flex";
+      if (toggleScrollBtn) toggleScrollBtn.disabled = false;
       sendToDashboardBtn.disabled = cCount === 0;
 
       if (isScrolling) {
         toggleScrollBtn.className = "btn btn-stop";
-        toggleScrollText.textContent = "Stop Auto-Collector";
+        if (toggleScrollText) toggleScrollText.textContent = "Stop Auto-Collector";
         setBanner("Auto-scrolling and collecting comments in real time...", "normal");
       } else {
         toggleScrollBtn.className = "btn btn-secondary";
-        toggleScrollText.textContent = "Start Auto-Collector";
-      }
-
-      if (paginateBtn) {
-        if (currentPlatform === "flipkart" || currentPlatform === "amazon") {
-          paginateBtn.style.display = "flex";
-        } else {
-          paginateBtn.style.display = "none";
-        }
+        if (toggleScrollText) toggleScrollText.textContent = "Start Auto-Collector";
       }
     } else {
-      toggleScrollBtn.disabled = true;
+      if (ecommerceControls) ecommerceControls.style.display = "none";
+      if (socialControls) socialControls.style.display = "none";
+      if (toggleScrollBtn) toggleScrollBtn.disabled = true;
       sendToDashboardBtn.disabled = true;
-      if (paginateBtn) paginateBtn.style.display = "none";
       setBanner("Navigate to YouTube, Instagram, Flipkart, Amazon, Myntra, Meesho, Nykaa, or Ajio.", "normal");
     }
+  }
+
+  function isEcomPlatform(p) {
+    return ["flipkart", "amazon", "myntra", "meesho", "nykaa", "ajio"].includes(p);
   }
 
   async function queryTabStatus() {
@@ -430,13 +518,30 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   await queryTabStatus();
 
-  // Auto-refresh counter and gauge every 1.5 seconds
-  const pollInterval = setInterval(async () => {
-    if (currentPlatform !== "unsupported") {
+  // Real-Time Progress Listener from content script turbo pagination
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg && msg.action === "TURBO_PAGE_PROGRESS") {
+      if (ecommerceProgressContainer) ecommerceProgressContainer.style.display = "flex";
+      const pct = Math.max(10, Math.round((msg.page / msg.totalPages) * 100));
+      if (ecommerceProgressBar) ecommerceProgressBar.style.width = `${pct}%`;
+      if (ecommerceProgressText) {
+        ecommerceProgressText.textContent = `Fetching Page ${msg.page} of ${msg.totalPages}... (${msg.totalCollected} reviews collected)`;
+      }
+      if (extractedCountBadge) extractedCountBadge.textContent = `${msg.totalCollected} reviews`;
+      if (sendToDashboardBtn) sendToDashboardBtn.disabled = msg.totalCollected === 0;
+      refreshQuickScan(true);
+    }
+  });
+
+  // Auto-refresh counter and gauge every 1.5 seconds during auto-scroll
+  setInterval(async () => {
+    if (currentPlatform !== "unsupported" && isScrolling) {
       const resp = await sendTabMessage({ action: "GET_STATUS" });
       if (resp) {
         const count = resp.count || 0;
-        if (extractedCountBadge) extractedCountBadge.textContent = `${count} comments`;
+        if (extractedCountBadge) {
+          extractedCountBadge.textContent = `${count} ${isEcomPlatform(currentPlatform) ? "reviews" : "comments"}`;
+        }
         if (commentCount) commentCount.textContent = count;
         if (count > 0) {
           sendToDashboardBtn.disabled = false;
@@ -446,29 +551,73 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }, 1500);
 
-  // Toggle Auto-Scroll Button
-  toggleScrollBtn.addEventListener("click", async () => {
-    const action = isScrolling ? "STOP_AUTO_SCROLL" : "START_AUTO_SCROLL";
-    const resp = await sendTabMessage({ action });
-    if (resp) {
-      await queryTabStatus();
-    }
-  });
+  // Turbo Multi-Page Review Fetch Execution
+  async function runTurboFetch(pageCount) {
+    if (fetch5PagesBtn) fetch5PagesBtn.disabled = true;
+    if (fetch10PagesBtn) fetch10PagesBtn.disabled = true;
+    if (startTurboFetchBtn) startTurboFetchBtn.disabled = true;
 
-  // E-Commerce Pagination Button (if present)
-  if (paginateBtn) {
-    paginateBtn.addEventListener("click", async () => {
-      paginateBtn.disabled = true;
-      setBanner("Fetching subsequent pages using your active cookies...", "normal");
-      const resp = await sendTabMessage({ action: "FETCH_PAGES", pages: 5 });
-      paginateBtn.disabled = false;
-      if (resp && resp.status === "success") {
-        if (extractedCountBadge) extractedCountBadge.textContent = `${resp.count} comments`;
-        sendToDashboardBtn.disabled = false;
-        setBanner(`Fetched pages! Total reviews now: ${resp.count}`, "success");
-        await refreshQuickScan(true);
-      } else {
-        setBanner("Pagination complete or blocked.", "normal");
+    if (ecommerceProgressContainer) {
+      ecommerceProgressContainer.style.display = "flex";
+      if (ecommerceProgressBar) ecommerceProgressBar.style.width = "8%";
+      if (ecommerceProgressText) {
+        ecommerceProgressText.textContent = `Connecting to ${currentPlatform.toUpperCase()} pagination engine...`;
+      }
+    }
+    setBanner(`Fetching next ${pageCount} review pages using active cookies...`, "normal");
+
+    const autoConvert = autoConvertReviewsToggle ? autoConvertReviewsToggle.checked : true;
+    const resp = await sendTabMessage({
+      action: "turboFetchPages",
+      pageCount,
+      autoConvert,
+    });
+
+    if (fetch5PagesBtn) fetch5PagesBtn.disabled = false;
+    if (fetch10PagesBtn) fetch10PagesBtn.disabled = false;
+    if (startTurboFetchBtn) startTurboFetchBtn.disabled = false;
+
+    if (resp && resp.status === "success") {
+      const finalCount = resp.count || 0;
+      if (extractedCountBadge) extractedCountBadge.textContent = `${finalCount} reviews`;
+      if (sendToDashboardBtn) sendToDashboardBtn.disabled = finalCount === 0;
+      setBanner(`✅ Turbo fetch complete! Total reviews collected: ${finalCount}`, "success");
+      if (ecommerceProgressText) {
+        ecommerceProgressText.textContent = `Completed! ${finalCount} reviews collected from ${pageCount} pages.`;
+      }
+      if (ecommerceProgressBar) ecommerceProgressBar.style.width = "100%";
+      await refreshQuickScan(true);
+      setTimeout(() => {
+        if (ecommerceProgressContainer) ecommerceProgressContainer.style.display = "none";
+      }, 3500);
+    } else {
+      setBanner("Pagination completed or blocked by site.", "normal");
+      if (ecommerceProgressContainer) ecommerceProgressContainer.style.display = "none";
+      await refreshQuickScan(true);
+    }
+  }
+
+  // Turbo Button Listeners
+  if (fetch5PagesBtn) {
+    fetch5PagesBtn.addEventListener("click", () => runTurboFetch(5));
+  }
+  if (fetch10PagesBtn) {
+    fetch10PagesBtn.addEventListener("click", () => runTurboFetch(10));
+  }
+  if (startTurboFetchBtn) {
+    startTurboFetchBtn.addEventListener("click", () => {
+      const pages = parseInt(customPageInput?.value || "5", 10) || 5;
+      runTurboFetch(Math.min(25, Math.max(1, pages)));
+    });
+  }
+
+  // Toggle Auto-Scroll Button (YouTube & Instagram)
+  if (toggleScrollBtn) {
+    toggleScrollBtn.addEventListener("click", async () => {
+      const action = isScrolling ? "STOP_AUTO_SCROLL" : "START_AUTO_SCROLL";
+      const resp = await sendTabMessage({ action });
+      if (resp) {
+        await queryTabStatus();
       }
     });
   }
@@ -476,14 +625,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Send to Dashboard Button
   sendToDashboardBtn.addEventListener("click", async () => {
     sendToDashboardBtn.disabled = true;
-    setBanner("Extracting comments from active session...", "normal");
+    setBanner("Extracting reviews from active session...", "normal");
 
     // Immediately halt auto-scrolling
     await sendTabMessage({ action: "STOP_AUTO_SCROLL" });
 
     const resp = await sendTabMessage({ action: "GET_ALL_COMMENTS" });
     if (!resp || !resp.comments || resp.comments.length === 0) {
-      setBanner("No comments found to send. Open a post or reel and scroll to collect.", "error");
+      setBanner("No comments/reviews found to send. Click Fetch Next Pages or auto-collector first.", "error");
       sendToDashboardBtn.disabled = false;
       return;
     }
@@ -519,7 +668,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       const data = await apiRes.json();
       const finalId = data.post_id || cleanPostId;
-      setBanner(`✅ Analyzed ${data.total_valid_comments || resp.comments.length} comments! Opening dashboard...`, "success");
+      setBanner(`✅ Analyzed ${data.total_valid_comments || resp.comments.length} reviews! Opening dashboard...`, "success");
 
       const dashboardUrl = `${DASHBOARD_URL}/?post_id=${encodeURIComponent(finalId)}`;
       chrome.runtime.sendMessage({ action: "OPEN_DASHBOARD", url: dashboardUrl }, () => {

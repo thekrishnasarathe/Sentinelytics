@@ -457,29 +457,42 @@
       }
     });
 
-    // Strategy C: Traditional CSS class backup
-    const cards = doc.querySelectorAll("div.col.EPCmJX, div.RcXBOT, div._2wzgFH, div._27M-vq");
+    // Strategy C: Structural & Modern CSS class review cards
+    const cards = doc.querySelectorAll("div.col.EPCmJX, div.EPCmJX, div.cPHDOP, div.RcXBOT, div._2wzgFH, div._27M-vq");
     cards.forEach((card, idx) => {
       const titleElem = card.querySelector("p.z9E0IG, p._2-N8zT, div._2t8De8");
       const bodyElem = card.querySelector("div.ZmyHeo, div.t-ZTKy, div._16PBlm");
       const titleText = titleElem ? titleElem.textContent.trim() : "";
-      const bodyText = bodyElem ? bodyElem.textContent.trim() : "";
-      const fullText = (titleText ? titleText + ". " : "") + bodyText;
+      let bodyText = bodyElem ? bodyElem.textContent.trim() : "";
+      bodyText = bodyText.replace(/\s*READ MORE\s*$/i, "").replace(/\s*Read more\s*$/i, "").trim();
+      const fullText = (titleText && !bodyText.toLowerCase().startsWith(titleText.toLowerCase())) ? (titleText + ". " + bodyText) : (bodyText || titleText);
       if (!fullText) return;
 
-      const ratingElem = card.querySelector("div.XQDdHH, div._3LWZlK");
-      const star = ratingElem ? parseInt(ratingElem.textContent.trim().split(/\s+/)[0], 10) : 4;
+      const ratingElem = card.querySelector("div.XQDdHH, div._3LWZlK, span._1l5W44, div._2d4LTz");
+      let star = 5;
+      if (ratingElem) {
+        const starMatch = ratingElem.textContent.trim().match(/^[1-5]/);
+        if (starMatch) star = parseInt(starMatch[0], 10);
+      }
 
-      const cid = `flp_css_${hashString(fullText.substring(0, 30))}`;
+      const authorElem = card.querySelector("p._2NsDsF, p._2sc7ZR, div._2V5EHH, span._2NsDsF");
+      const author = authorElem ? authorElem.textContent.trim() : `buyer_${idx + 1}`;
+
+      const isVerified = card.textContent.includes("Certified Buyer");
+
+      const timeElem = card.querySelector("p._2mcPpO, span._2NsDsF + p, div._1e9_4N");
+      const timeStr = timeElem ? timeElem.textContent.trim() : new Date().toISOString();
+
+      const cid = `flp_${hashString((author || "") + "::" + fullText.substring(0, 50))}`;
       if (!state.collectedCommentsMap.has(cid)) {
         state.collectedCommentsMap.set(cid, {
           comment_id: cid,
           raw_text: fullText,
-          timestamp: new Date().toISOString(),
+          timestamp: timeStr,
           like_count: 0,
-          anonymized_author_id: `buyer_${idx}`,
-          star_rating: star || 4,
-          verified_purchase: true,
+          anonymized_author_id: author,
+          star_rating: star || 5,
+          verified_purchase: isVerified,
         });
       }
     });
@@ -495,15 +508,21 @@
       const titleElem = card.querySelector("a[data-hook='review-title'] span, span[data-hook='review-title'] span, [data-hook='review-title']");
       const bodyElem = card.querySelector("span[data-hook='review-body'] span, [data-hook='review-body']");
       const titleText = titleElem ? titleElem.textContent.trim() : "";
-      const bodyText = bodyElem ? bodyElem.textContent.trim() : "";
-      const fullText = (titleText ? titleText + ". " : "") + bodyText;
+      let bodyText = bodyElem ? bodyElem.textContent.trim() : "";
+      bodyText = bodyText.replace(/\s*Read more\s*$/i, "").trim();
+      const fullText = (titleText && !bodyText.toLowerCase().startsWith(titleText.toLowerCase())) ? (titleText + ". " + bodyText) : (bodyText || titleText);
       if (!fullText) return;
 
       const ratingElem = card.querySelector("i[data-hook='review-star-rating'] span.a-icon-alt, i[data-hook='cmps-review-star-rating'] span.a-icon-alt, i.a-star-[1-5]");
       let starRating = 5;
       if (ratingElem) {
         const match = ratingElem.textContent.match(/([0-9\.]+)\s+out of/);
-        if (match) starRating = Math.round(parseFloat(match[1]));
+        if (match) {
+          starRating = Math.round(parseFloat(match[1]));
+        } else {
+          const clsMatch = (ratingElem.className || "").match(/a-star-([1-5])/);
+          if (clsMatch) starRating = parseInt(clsMatch[1], 10);
+        }
       }
 
       const authorElem = card.querySelector("span.a-profile-name, .a-profile-name");
@@ -796,55 +815,146 @@
   }
 
   // =========================================================================
-  // 7. Authenticated E-Commerce Multi-Page Review Fetcher
+  // 7. Authenticated E-Commerce Multi-Page Review Fetcher (Turbo Paginated)
   // =========================================================================
-  async function fetchNextEcommercePages(numPages = 4) {
+  async function turboFetchEcommercePages(pageCount = 5, autoConvert = true) {
     const platform = detectPlatform();
     const currentUrl = window.location.href;
 
+    // 1. Immediately extract whatever is on current DOM so reviews are never 0
+    runExtraction();
+
     if (platform === "flipkart") {
       let baseUrl = currentUrl;
-      if (baseUrl.includes("/p/")) {
-        baseUrl = baseUrl.replace("/p/", "/product-reviews/");
+      const allReviewsLink = document.querySelector('a[href*="/product-reviews/"]');
+
+      if (autoConvert) {
+        if (allReviewsLink && allReviewsLink.href) {
+          baseUrl = allReviewsLink.href;
+        } else if (baseUrl.includes("/p/")) {
+          baseUrl = baseUrl.replace("/p/", "/product-reviews/");
+        } else if (!baseUrl.includes("/product-reviews/")) {
+          const matchPid = baseUrl.match(/pid=([A-Z0-9]+)/i);
+          if (matchPid) {
+            baseUrl = `${window.location.origin}/product-reviews/itm?pid=${matchPid[1]}`;
+          }
+        }
       }
-      for (let p = 2; p <= 1 + numPages; p++) {
+
+      const isAlreadyOnReviewPage = baseUrl.includes("/product-reviews/");
+      const pageMatch = baseUrl.match(/[?&]page=(\d+)/);
+      const currentPageNum = isAlreadyOnReviewPage && pageMatch ? parseInt(pageMatch[1], 10) : (isAlreadyOnReviewPage ? 1 : 0);
+
+      const cleanBase = baseUrl.replace(/([?&])page=\d+(&?)/, (m, p1, p2) => (p1 === "?" && p2 ? "?" : ""));
+      const sep = cleanBase.includes("?") ? "&" : "?";
+
+      for (let step = 1; step <= pageCount; step++) {
+        const p = currentPageNum + step;
+        const pageUrl = `${cleanBase}${sep}page=${p}`;
+
         try {
-          const sep = baseUrl.includes("?") ? "&" : "?";
-          const pageUrl = `${baseUrl}${sep}page=${p}`;
-          const res = await fetch(pageUrl, { credentials: "include" });
+          const res = await fetch(pageUrl, {
+            credentials: "include",
+            headers: {
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Cache-Control": "no-cache",
+            },
+          });
+
           if (res.ok) {
             const html = await res.text();
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, "text/html");
+            const prevSize = state.collectedCommentsMap.size;
             extractFlipkartReviews(doc);
+            const newReviews = state.collectedCommentsMap.size - prevSize;
+
+            try {
+              chrome.runtime.sendMessage({
+                action: "TURBO_PAGE_PROGRESS",
+                platform: "flipkart",
+                page: step,
+                totalPages: pageCount,
+                pageNumber: p,
+                totalCollected: state.collectedCommentsMap.size,
+                newReviews,
+              });
+            } catch (_) {}
+          } else {
+            console.warn(`[Sentinelytics] Flipkart page ${p} returned HTTP ${res.status}`);
           }
         } catch (e) {
-          console.warn("[Sentinelytics] Failed to fetch Flipkart page:", e);
+          console.warn(`[Sentinelytics] Flipkart page ${p} fetch error:`, e);
         }
+
+        // Rapid 180ms delay between pages
+        await new Promise((r) => setTimeout(r, 180));
       }
     } else if (platform === "amazon") {
       let matchAsin = currentUrl.match(/\/(?:dp|gp\/product|product-reviews)\/([A-Z0-9]{10})/i);
-      if (matchAsin) {
-        const asin = matchAsin[1];
+      const asinInput = document.querySelector('input#ASIN, input[name="ASIN"], [data-asin]');
+      const asin = matchAsin ? matchAsin[1] : (asinInput ? (asinInput.value || asinInput.getAttribute("data-asin")) : null);
+
+      if (asin) {
         const origin = window.location.origin;
-        for (let p = 2; p <= 1 + numPages; p++) {
+        const isAlreadyOnReviewPage = currentUrl.includes("/product-reviews/");
+        const pageParamMatch = currentUrl.match(/[?&]pageNumber=(\d+)/);
+        const currentPageNum = isAlreadyOnReviewPage && pageParamMatch ? parseInt(pageParamMatch[1], 10) : (isAlreadyOnReviewPage ? 1 : 0);
+
+        for (let step = 1; step <= pageCount; step++) {
+          const p = currentPageNum + step;
+          const pageUrl = `${origin}/product-reviews/${asin}/?pageNumber=${p}&reviewerType=all_reviews`;
+
           try {
-            const pageUrl = `${origin}/product-reviews/${asin}?pageNumber=${p}`;
-            const res = await fetch(pageUrl, { credentials: "include" });
+            const res = await fetch(pageUrl, {
+              credentials: "include",
+              headers: {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              },
+            });
+
             if (res.ok) {
               const html = await res.text();
               const parser = new DOMParser();
               const doc = parser.parseFromString(html, "text/html");
+              const prevSize = state.collectedCommentsMap.size;
               extractAmazonReviews(doc);
+              const newReviews = state.collectedCommentsMap.size - prevSize;
+
+              try {
+                chrome.runtime.sendMessage({
+                  action: "TURBO_PAGE_PROGRESS",
+                  platform: "amazon",
+                  page: step,
+                  totalPages: pageCount,
+                  pageNumber: p,
+                  totalCollected: state.collectedCommentsMap.size,
+                  newReviews,
+                });
+              } catch (_) {}
+            } else {
+              console.warn(`[Sentinelytics] Amazon page ${p} returned HTTP ${res.status}`);
             }
           } catch (e) {
-            console.warn("[Sentinelytics] Failed to fetch Amazon page:", e);
+            console.warn(`[Sentinelytics] Amazon page ${p} fetch error:`, e);
           }
+
+          await new Promise((r) => setTimeout(r, 180));
         }
       }
     }
+
+    // Fallback: If network fetch yielded 0 or failed, re-extract visible DOM reviews
+    if (state.collectedCommentsMap.size === 0) {
+      runExtraction();
+    }
+
+    updateFloatingPillCounter();
     return state.collectedCommentsMap.size;
   }
+
+  // Alias for backward compatibility
+  const fetchNextEcommercePages = turboFetchEcommercePages;
 
   // Initial immediate extraction
   runExtraction();
@@ -867,6 +977,7 @@
         url: window.location.href,
         count: state.collectedCommentsMap.size,
         isAutoScrolling: state.isAutoScrolling,
+        isEcommerce: ["flipkart", "amazon", "myntra", "meesho", "nykaa", "ajio"].includes(platform),
       });
       return true;
     }
@@ -883,8 +994,10 @@
       return true;
     }
 
-    if (request.action === "FETCH_PAGES") {
-      fetchNextEcommercePages(request.pages || 4).then((count) => {
+    if (request.action === "turboFetchPages" || request.action === "FETCH_PAGES") {
+      const pageCount = request.pageCount || request.pages || 5;
+      const autoConvert = request.autoConvert !== false;
+      turboFetchEcommercePages(pageCount, autoConvert).then((count) => {
         sendResponse({ status: "success", count });
       });
       return true;
