@@ -1,1 +1,147 @@
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    --canvas-bg: #08090C;
+    --card-surface: #101218;
+    --card-surface-elevated: #161822;
+    --hairline-border: rgba(255, 255, 255, 0.07);
+    --hairline-border-subtle: rgba(255, 255, 255, 0.04);
+    --hairline-border-hover: rgba(255, 255, 255, 0.14);
+    --specular-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+    --specular-highlight-subtle: inset 0 1px 0 0 rgba(255, 255, 255, 0.03);
+    --accent-indigo: #6366F1;
+    --accent-indigo-hover: #4F46E5;
+    --semantic-positive: #10B981;
+    --semantic-negative: #F43F5E;
+    --semantic-neutral: #0EA5E9;
+    --semantic-warning: #F59E0B;
+  }
+
+  html {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--canvas-bg);
+    color: #F1F5F9;
+    color-scheme: dark;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-feature-settings: "tnum" 1, "zero" 1;
+  }
+}
+
+/* Linear & Vercel Architectural Surfaces */
+.obsidian-canvas {
+  background-color: #08090C;
+  background-image: 
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.08), transparent 70%),
+    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.04), transparent 50%);
+}
+
+.matrix-grid-pattern {
+  background-size: 24px 24px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+}
+
+.obsidian-card {
+  background-color: #101218;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 4px 20px -2px rgba(0, 0, 0, 0.5);
+}
+
+.obsidian-card-interactive {
+  background-color: #101218;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.obsidian-card-interactive:hover {
+  background-color: #141720;
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.1), 0 8px 30px -4px rgba(0, 0, 0, 0.6);
+  transform: translateY(-1px);
+}
+
+.obsidian-pill {
+  background-color: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+}
+
+.obsidian-input {
+  background-color: #0C0E14;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: #F8FAFC;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+  transition: all 0.15s ease;
+}
+
+.obsidian-input:focus {
+  border-color: rgba(99, 102, 241, 0.6);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15), inset 0 1px 2px rgba(0, 0, 0, 0.6);
+  outline: none;
+}
+
+/* Custom Minimalist Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Precision Tabular Numbers */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* High-Contrast Primary Buttons (Linear/Vercel Style) */
+.btn-primary-solid {
+  background-color: #F8FAFC;
+  color: #090A0F;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transition: all 0.15s ease;
+}
+
+.btn-primary-solid:hover {
+  background-color: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(255, 255, 255, 0.15), 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.btn-primary-solid:active {
+  transform: scale(0.98);
+}
+
+/* Indigo Accent Buttons */
+.btn-indigo-solid {
+  background-color: #4F46E5;
+  color: #FFFFFF;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: all 0.15s ease;
+}
+
+.btn-indigo-solid:hover {
+  background-color: #4338CA;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+}
+
+.btn-indigo-solid:active {
+  transform: scale(0.98);
+}

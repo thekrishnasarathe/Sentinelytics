@@ -48,21 +48,22 @@ document.addEventListener("DOMContentLoaded", async () => {
   const starPreviewContainer = document.getElementById("starPreviewContainer");
   const avgStarBadge = document.getElementById("avgStarBadge");
 
-  // E-Commerce action controls
-  const ecommerceControls = document.getElementById("ecommerceControls");
+  // Unified action panel controls
+  const toggleScrollBtn = document.getElementById("toggleScrollBtn");
+  const toggleScrollIcon = document.getElementById("toggleScrollIcon");
+  const toggleScrollText = document.getElementById("toggleScrollText");
+  const turboBox = document.getElementById("turboBox");
+  const turboSubtext = document.getElementById("turboSubtext");
   const fetch5PagesBtn = document.getElementById("fetch5PagesBtn");
   const fetch10PagesBtn = document.getElementById("fetch10PagesBtn");
   const customPageInput = document.getElementById("customPageInput");
   const startTurboFetchBtn = document.getElementById("startTurboFetchBtn");
+  const autoConvertRow = document.getElementById("autoConvertRow");
   const autoConvertReviewsToggle = document.getElementById("autoConvertReviewsToggle");
   const ecommerceProgressContainer = document.getElementById("ecommerceProgressContainer");
   const ecommerceProgressBar = document.getElementById("ecommerceProgressBar");
   const ecommerceProgressText = document.getElementById("ecommerceProgressText");
-
-  // Social Media action controls
-  const socialControls = document.getElementById("socialControls");
-  const toggleScrollBtn = document.getElementById("toggleScrollBtn");
-  const toggleScrollText = document.getElementById("toggleScrollText");
+  const rapidApiFetchBtn = document.getElementById("rapidApiFetchBtn");
 
   if (openDashboardLink) openDashboardLink.href = DASHBOARD_URL;
 
@@ -84,6 +85,63 @@ document.addEventListener("DOMContentLoaded", async () => {
         backendStatus.style.color = "#fbbf24";
       }
     });
+
+  // RapidAPI key configuration in popup
+  const rapidApiKeyInput = document.getElementById("rapidApiKeyInput");
+  const saveRapidApiKeyBtn = document.getElementById("saveRapidApiKeyBtn");
+  const rapidApiKeyStatus = document.getElementById("rapidApiKeyStatus");
+
+  fetch(`${BACKEND_URL}/api/settings/keys`)
+    .then((r) => r.json())
+    .then((data) => {
+      if (data && data.rapidapi_key_configured) {
+        if (rapidApiKeyStatus) {
+          rapidApiKeyStatus.textContent = "Active";
+          rapidApiKeyStatus.style.color = "#34d399";
+        }
+        if (rapidApiKeyInput && data.masked_keys && data.masked_keys.rapidapi_key) {
+          rapidApiKeyInput.placeholder = data.masked_keys.rapidapi_key;
+        }
+      } else if (rapidApiKeyStatus) {
+        rapidApiKeyStatus.textContent = "Not Set";
+        rapidApiKeyStatus.style.color = "#94a3b8";
+      }
+    })
+    .catch(() => {
+      if (rapidApiKeyStatus) rapidApiKeyStatus.textContent = "Offline";
+    });
+
+  if (saveRapidApiKeyBtn && rapidApiKeyInput) {
+    saveRapidApiKeyBtn.addEventListener("click", async () => {
+      const keyVal = (rapidApiKeyInput.value || "").trim();
+      if (!keyVal) return;
+      saveRapidApiKeyBtn.disabled = true;
+      saveRapidApiKeyBtn.textContent = "...";
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/settings/keys`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rapidapi_key: keyVal })
+        });
+        if (res.ok) {
+          if (rapidApiKeyStatus) {
+            rapidApiKeyStatus.textContent = "Saved ✅";
+            rapidApiKeyStatus.style.color = "#34d399";
+          }
+          rapidApiKeyInput.value = "";
+          rapidApiKeyInput.placeholder = "Key saved!";
+        }
+      } catch (err) {
+        if (rapidApiKeyStatus) {
+          rapidApiKeyStatus.textContent = "Error saving";
+          rapidApiKeyStatus.style.color = "#f87171";
+        }
+      } finally {
+        saveRapidApiKeyBtn.disabled = false;
+        saveRapidApiKeyBtn.textContent = "Save";
+      }
+    });
+  }
 
   // Query active tab
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -111,8 +169,37 @@ document.addEventListener("DOMContentLoaded", async () => {
       .replace(/'/g, "&#039;");
   }
 
-  // Ensure content script is injected BEFORE any message call
+  // Monotonic count tracker to eliminate jumping/glitching counters
+  let maxObservedCount = 0;
+  let lastKnownPostId = null;
+
+  function updateMonotonicCount(rawCount, postId) {
+    const num = parseInt(rawCount, 10) || 0;
+    if (postId && lastKnownPostId && postId !== lastKnownPostId) {
+      maxObservedCount = num;
+      lastKnownPostId = postId;
+    } else {
+      if (postId) lastKnownPostId = postId;
+      maxObservedCount = Math.max(maxObservedCount, num);
+    }
+    return maxObservedCount;
+  }
+
+  // Ensure content script is active: PING first, ONLY inject if uncommunicative
   async function ensureContentScript() {
+    try {
+      const resp = await new Promise((resolve) => {
+        chrome.tabs.sendMessage(currentTabId, { action: "PING" }, (res) => {
+          if (chrome.runtime.lastError || !res) resolve(null);
+          else resolve(res);
+        });
+      });
+      if (resp && resp.status === "PONG") {
+        return; // Content script is already injected and responsive
+      }
+    } catch (_) {}
+
+    // Only inject if PING failed
     try {
       await chrome.scripting.executeScript({
         target: { tabId: currentTabId },
@@ -123,11 +210,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  let isContentScriptEnsured = false;
   async function sendTabMessage(msg) {
-    await ensureContentScript();
+    if (!isContentScriptEnsured) {
+      await ensureContentScript();
+      isContentScriptEnsured = true;
+    }
     return new Promise((resolve) => {
       chrome.tabs.sendMessage(currentTabId, msg, (resp) => {
         if (chrome.runtime.lastError) {
+          isContentScriptEnsured = false;
           console.warn("[Sentinelytics] Message error:", chrome.runtime.lastError.message);
           resolve(null);
         } else {
@@ -323,7 +415,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (sarcasmPill) {
       if (data.sarcastic_count > 0) {
         sarcasmPill.style.display = "inline-flex";
-        sarcasmPill.textContent = `⚡ ${data.sarcastic_count} Sarcastic Comments (Text-Emoji Conflict)`;
+        sarcasmPill.textContent = `${data.sarcastic_count} Sarcastic Comments (Text-Emoji Conflict)`;
       } else {
         sarcasmPill.style.display = "none";
       }
@@ -403,9 +495,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       lastAnalyzedCount = resp.comments.length;
+      const qCount = updateMonotonicCount(resp.comments.length, currentPostId);
       if (extractedCountBadge) {
-        extractedCountBadge.textContent = `${resp.comments.length} reviews`;
+        extractedCountBadge.textContent = `${qCount} ${isEcomPlatform(currentPlatform) ? "reviews" : "comments"}`;
       }
+      if (commentCount) commentCount.textContent = qCount;
 
       let scanResult = null;
       // Try ultra-fast FastAPI scan
@@ -440,7 +534,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
-  // Platform-Adaptive UI Switcher
+  // Platform-Adaptive UI Switcher (Both Action Modes Available on All Platforms)
   function updateStatusFromResponse(resp) {
     if (!resp) return;
     currentPlatform = resp.platform || "unsupported";
@@ -455,47 +549,51 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (targetTitle) {
       targetTitle.textContent = currentTitle || "Active Webpage";
     }
-    const cCount = resp.count || 0;
+    const cCount = updateMonotonicCount(resp.count, resp.postId);
     if (extractedCountBadge) {
       extractedCountBadge.textContent = `${cCount} ${isEcomPlatform(currentPlatform) ? "reviews" : "comments"}`;
     }
     if (commentCount) commentCount.textContent = cCount;
 
+    const isSupported = currentPlatform !== "unsupported";
     const isEcom = isEcomPlatform(currentPlatform);
-    const isSocial = ["youtube", "instagram"].includes(currentPlatform);
 
-    if (isEcom) {
-      if (ecommerceControls) ecommerceControls.style.display = "flex";
-      if (socialControls) socialControls.style.display = "none";
-      if (fetch5PagesBtn) fetch5PagesBtn.disabled = false;
-      if (fetch10PagesBtn) fetch10PagesBtn.disabled = false;
-      if (startTurboFetchBtn) startTurboFetchBtn.disabled = false;
-      sendToDashboardBtn.disabled = cCount === 0;
+    // Both action modes remain available on all platforms!
+    if (toggleScrollBtn) toggleScrollBtn.disabled = !isSupported;
+    if (fetch5PagesBtn) fetch5PagesBtn.disabled = !isSupported;
+    if (fetch10PagesBtn) fetch10PagesBtn.disabled = !isSupported;
+    if (startTurboFetchBtn) startTurboFetchBtn.disabled = !isSupported;
+    if (rapidApiFetchBtn) rapidApiFetchBtn.disabled = !isSupported || !(currentPlatform === "instagram" || currentPlatform === "amazon");
+    if (sendToDashboardBtn) sendToDashboardBtn.disabled = !isSupported || cCount === 0;
 
-      if (cCount > 0) {
-        setBanner(`Detected ${cCount} reviews on page. Click Next 5 or 10 Pages to turbo fetch.`, "normal");
-      } else {
-        setBanner("E-Commerce product page ready. Click Fetch Next 5 Pages to collect customer reviews.", "normal");
-      }
-    } else if (isSocial) {
-      if (ecommerceControls) ecommerceControls.style.display = "none";
-      if (socialControls) socialControls.style.display = "flex";
-      if (toggleScrollBtn) toggleScrollBtn.disabled = false;
-      sendToDashboardBtn.disabled = cCount === 0;
+    // Auto-convert row only relevant on e-commerce
+    if (autoConvertRow) {
+      autoConvertRow.style.display = isEcom ? "flex" : "none";
+    }
+    if (turboSubtext) {
+      turboSubtext.textContent = isEcom ? "Authenticated In-Browser" : "Fast Scroll Bursts";
+    }
 
+    if (isSupported) {
       if (isScrolling) {
-        toggleScrollBtn.className = "btn btn-stop";
+        toggleScrollBtn.className = "btn-collector active-stop";
+        if (toggleScrollIcon) toggleScrollIcon.textContent = "⏹";
         if (toggleScrollText) toggleScrollText.textContent = "Stop Auto-Collector";
         setBanner("Auto-scrolling and collecting comments in real time...", "normal");
       } else {
-        toggleScrollBtn.className = "btn btn-secondary";
+        toggleScrollBtn.className = "btn-collector";
+        if (toggleScrollIcon) toggleScrollIcon.textContent = "▶";
         if (toggleScrollText) toggleScrollText.textContent = "Start Auto-Collector";
+        if (cCount > 0) {
+          setBanner(`Collected ${cCount} ${isEcom ? "reviews" : "comments"}. Click Turbo Fetch or Send to Dashboard.`, "normal");
+        } else {
+          setBanner(`Ready to collect from ${currentPlatform.toUpperCase()}. Click Start Auto-Collector or Turbo Fetch.`, "normal");
+        }
       }
     } else {
-      if (ecommerceControls) ecommerceControls.style.display = "none";
-      if (socialControls) socialControls.style.display = "none";
-      if (toggleScrollBtn) toggleScrollBtn.disabled = true;
-      sendToDashboardBtn.disabled = true;
+      toggleScrollBtn.className = "btn-collector";
+      if (toggleScrollIcon) toggleScrollIcon.textContent = "▶";
+      if (toggleScrollText) toggleScrollText.textContent = "Start Auto-Collector";
       setBanner("Navigate to YouTube, Instagram, Flipkart, Amazon, Myntra, Meesho, Nykaa, or Ajio.", "normal");
     }
   }
@@ -524,11 +622,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (ecommerceProgressContainer) ecommerceProgressContainer.style.display = "flex";
       const pct = Math.max(10, Math.round((msg.page / msg.totalPages) * 100));
       if (ecommerceProgressBar) ecommerceProgressBar.style.width = `${pct}%`;
+      const totalCollected = updateMonotonicCount(msg.totalCollected, currentPostId);
       if (ecommerceProgressText) {
-        ecommerceProgressText.textContent = `Fetching Page ${msg.page} of ${msg.totalPages}... (${msg.totalCollected} reviews collected)`;
+        ecommerceProgressText.textContent = `Fetching Page ${msg.page} of ${msg.totalPages}... (${totalCollected} reviews collected)`;
       }
-      if (extractedCountBadge) extractedCountBadge.textContent = `${msg.totalCollected} reviews`;
-      if (sendToDashboardBtn) sendToDashboardBtn.disabled = msg.totalCollected === 0;
+      if (extractedCountBadge) extractedCountBadge.textContent = `${totalCollected} reviews`;
+      if (commentCount) commentCount.textContent = totalCollected;
+      if (sendToDashboardBtn) sendToDashboardBtn.disabled = totalCollected === 0;
       refreshQuickScan(true);
     }
   });
@@ -538,7 +638,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (currentPlatform !== "unsupported" && isScrolling) {
       const resp = await sendTabMessage({ action: "GET_STATUS" });
       if (resp) {
-        const count = resp.count || 0;
+        const count = updateMonotonicCount(resp.count, resp.postId);
         if (extractedCountBadge) {
           extractedCountBadge.textContent = `${count} ${isEcomPlatform(currentPlatform) ? "reviews" : "comments"}`;
         }
@@ -551,20 +651,149 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }, 1500);
 
-  // Turbo Multi-Page Review Fetch Execution
+  function triggerRapidApiBoostIfInstagram() {
+    if (currentPlatform === "instagram" && currentPostId) {
+      fetch(`${BACKEND_URL}/api/instagram/rapidapi`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shortcode: currentPostId, max_comments: 500 })
+      })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.status === "ok" && Array.isArray(d.comments) && d.comments.length > 0) {
+          chrome.tabs.sendMessage(currentTabId, { action: "INGEST_RAPIDAPI_COMMENTS", comments: d.comments })
+            .then((res) => {
+              const newTotal = res?.count || d.comments.length;
+              updateMonotonicCount(newTotal, currentPostId);
+              setBanner(`☁️ RapidAPI: +${d.comments.length} comments fetched!`, "success");
+              refreshQuickScan(true);
+            })
+            .catch(() => {});
+        } else if (d && d.status === "quota_exceeded") {
+          setBanner("⚠️ RapidAPI Quota Exceeded — using Browser DOM", "normal");
+        }
+      })
+      .catch(() => {});
+    }
+  }
+
+  function triggerRapidApiBoostIfAmazon() {
+    if (currentPlatform === "amazon" && currentPostId) {
+      fetch(`${BACKEND_URL}/api/amazon/rapidapi`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ asin: currentPostId, max_reviews: 200 })
+      })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.status === "ok" && Array.isArray(d.comments) && d.comments.length > 0) {
+          chrome.tabs.sendMessage(currentTabId, { action: "INGEST_RAPIDAPI_COMMENTS", comments: d.comments })
+            .then((res) => {
+              const newTotal = res?.count || d.comments.length;
+              updateMonotonicCount(newTotal, currentPostId);
+              setBanner(`☁️ RapidAPI: +${d.comments.length} reviews fetched!`, "success");
+              refreshQuickScan(true);
+            })
+            .catch(() => {});
+        }
+      })
+      .catch(() => {});
+    }
+  }
+
+  // Dedicated RapidAPI Cloud Fetcher Button Click
+  if (rapidApiFetchBtn) {
+    rapidApiFetchBtn.addEventListener("click", async () => {
+      if (!currentPostId) {
+        setBanner("No active post or product detected on this tab.", "error");
+        return;
+      }
+      rapidApiFetchBtn.disabled = true;
+      const origHtml = rapidApiFetchBtn.innerHTML;
+      rapidApiFetchBtn.innerHTML = "<span>Fetching RapidAPI stream...</span>";
+      setBanner("Connecting to RapidAPI cloud stream...", "normal");
+
+      try {
+        let endpoint = "";
+        let bodyPayload = {};
+        if (currentPlatform === "instagram") {
+          endpoint = `${BACKEND_URL}/api/instagram/rapidapi`;
+          bodyPayload = { shortcode: currentPostId, max_comments: 500 };
+        } else if (currentPlatform === "amazon") {
+          endpoint = `${BACKEND_URL}/api/amazon/rapidapi`;
+          bodyPayload = { asin: currentPostId, max_reviews: 200 };
+        } else {
+          setBanner("RapidAPI acceleration is available on Instagram & Amazon.", "normal");
+          rapidApiFetchBtn.disabled = false;
+          rapidApiFetchBtn.innerHTML = origHtml;
+          return;
+        }
+
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bodyPayload),
+        });
+        const data = await res.json();
+
+        if (data.status === "quota_exceeded") {
+          setBanner("RapidAPI Quota Exceeded — using Browser DOM", "error");
+        } else if (data.status === "no_key") {
+          setBanner("RapidAPI Key not set in Settings", "error");
+        } else if (data.status === "ok" && Array.isArray(data.comments)) {
+          if (data.comments.length > 0) {
+            const tabResp = await chrome.tabs.sendMessage(currentTabId, {
+              action: "INGEST_RAPIDAPI_COMMENTS",
+              comments: data.comments,
+            });
+            const newCount = tabResp?.count || data.comments.length;
+            updateMonotonicCount(newCount, currentPostId);
+            setBanner(`RapidAPI: +${data.comments.length} comments fetched!`, "success");
+            await refreshQuickScan(true);
+          } else {
+            setBanner("RapidAPI returned 0 comments. Continuing in browser session.", "normal");
+          }
+        } else {
+          setBanner(`RapidAPI: ${data.message || "Completed"}`, "normal");
+        }
+      } catch (err) {
+        setBanner(`RapidAPI error: ${err.message}`, "error");
+      } finally {
+        rapidApiFetchBtn.disabled = false;
+        rapidApiFetchBtn.innerHTML = origHtml;
+      }
+    });
+  }
+
+  // Turbo Multi-Page Review / Burst Fetch Execution (All Platforms)
   async function runTurboFetch(pageCount) {
+    if (currentPlatform === "instagram") {
+      triggerRapidApiBoostIfInstagram();
+    } else if (currentPlatform === "amazon") {
+      triggerRapidApiBoostIfAmazon();
+    }
     if (fetch5PagesBtn) fetch5PagesBtn.disabled = true;
     if (fetch10PagesBtn) fetch10PagesBtn.disabled = true;
     if (startTurboFetchBtn) startTurboFetchBtn.disabled = true;
+
+    const isEcom = isEcomPlatform(currentPlatform);
+    const unit = isEcom ? "pages" : "burst cycles";
 
     if (ecommerceProgressContainer) {
       ecommerceProgressContainer.style.display = "flex";
       if (ecommerceProgressBar) ecommerceProgressBar.style.width = "8%";
       if (ecommerceProgressText) {
-        ecommerceProgressText.textContent = `Connecting to ${currentPlatform.toUpperCase()} pagination engine...`;
+        ecommerceProgressText.textContent = isEcom
+          ? `Connecting to ${currentPlatform.toUpperCase()} pagination engine...`
+          : `Running 5 fast scroll-bursts on ${currentPlatform.toUpperCase()}...`;
       }
     }
-    setBanner(`Fetching next ${pageCount} review pages using active cookies...`, "normal");
+    setBanner(
+      isEcom
+        ? `Fetching next ${pageCount} review pages using active session...`
+        : `Executing ${pageCount} rapid comment scroll-burst cycles...`,
+      "normal"
+    );
 
     const autoConvert = autoConvertReviewsToggle ? autoConvertReviewsToggle.checked : true;
     const resp = await sendTabMessage({
@@ -578,12 +807,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (startTurboFetchBtn) startTurboFetchBtn.disabled = false;
 
     if (resp && resp.status === "success") {
-      const finalCount = resp.count || 0;
-      if (extractedCountBadge) extractedCountBadge.textContent = `${finalCount} reviews`;
+      const finalCount = updateMonotonicCount(resp.count, currentPostId);
+      if (extractedCountBadge) {
+        extractedCountBadge.textContent = `${finalCount} ${isEcom ? "reviews" : "comments"}`;
+      }
+      if (commentCount) commentCount.textContent = finalCount;
       if (sendToDashboardBtn) sendToDashboardBtn.disabled = finalCount === 0;
-      setBanner(`✅ Turbo fetch complete! Total reviews collected: ${finalCount}`, "success");
+      setBanner(`✅ Turbo fetch complete! Total collected: ${finalCount}`, "success");
       if (ecommerceProgressText) {
-        ecommerceProgressText.textContent = `Completed! ${finalCount} reviews collected from ${pageCount} pages.`;
+        ecommerceProgressText.textContent = `Completed! ${finalCount} collected from ${pageCount} ${unit}.`;
       }
       if (ecommerceProgressBar) ecommerceProgressBar.style.width = "100%";
       await refreshQuickScan(true);
@@ -591,7 +823,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (ecommerceProgressContainer) ecommerceProgressContainer.style.display = "none";
       }, 3500);
     } else {
-      setBanner("Pagination completed or blocked by site.", "normal");
+      setBanner("Pagination or scroll burst completed.", "normal");
       if (ecommerceProgressContainer) ecommerceProgressContainer.style.display = "none";
       await refreshQuickScan(true);
     }
@@ -611,9 +843,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // Toggle Auto-Scroll Button (YouTube & Instagram)
+  // Toggle Auto-Scroll Button (YouTube & Instagram & E-Commerce)
   if (toggleScrollBtn) {
     toggleScrollBtn.addEventListener("click", async () => {
+      if (!isScrolling) {
+        if (currentPlatform === "instagram") {
+          triggerRapidApiBoostIfInstagram();
+        } else if (currentPlatform === "amazon") {
+          triggerRapidApiBoostIfAmazon();
+        }
+      }
       const action = isScrolling ? "STOP_AUTO_SCROLL" : "START_AUTO_SCROLL";
       const resp = await sendTabMessage({ action });
       if (resp) {

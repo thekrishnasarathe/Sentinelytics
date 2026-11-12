@@ -787,12 +787,11 @@ def test_universal_ecommerce_and_expanded_platforms():
     _, plat_a, _ = parse_input_url_or_id(ajio_url)
     assert plat_a == "ajio"
 
-    # 2. Universal extraction fallback generates tailored benchmark reviews
+    # 2. Universal extraction on live URL without browser session blocks cleanly with ValueError (Zero fake data)
     extractor = UniversalEcommerceExtractor(platform="myntra")
-    post_data = extractor.extract(myntra_url, max_comments=50, fallback_on_blocked=True)
-    assert len(post_data.comments) == 50
-    assert post_data.platform == "myntra"
-    assert any("dress" in c.raw_text.lower() or "fabric" in c.raw_text.lower() or "fit" in c.raw_text.lower() for c in post_data.comments)
+    with pytest.raises(ValueError) as excinfo:
+        extractor.extract(myntra_url, max_comments=50, fallback_on_blocked=False)
+    assert "Sentinelytics Chrome Extension" in str(excinfo.value) or "Could not extract" in str(excinfo.value)
 
 
 @pytest.mark.anyio
@@ -879,3 +878,424 @@ async def test_quick_analyze_endpoint_and_sarcasm_counter():
     assert isinstance(res["health_badge"], str)
     assert len(res["preview_comments"]) == 3
     assert any(c["is_sarcastic"] for c in res["preview_comments"])
+
+
+@pytest.mark.anyio
+async def test_browser_ingestion_with_flexible_field_aliases():
+    """
+    Verify flexible field alias normalization and zero demo fallback:
+    - Accepts 'text', 'comment', 'review_text', 'body' -> 'raw_text'
+    - Accepts 'author', 'user', 'reviewer' -> 'anonymized_author_id'
+    - Accepts 'rating', 'stars' -> 'star_rating'
+    - Prevents 422 validation failure
+    - Re-uses cached browser report on subsequent analyze requests
+    - Rejects empty or whitespace-only comment payloads with HTTP 400
+    """
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+
+    # 1. Test ingestion with flexible field aliases
+    payload = {
+        "post_url": "https://www.flipkart.com/item/p/itm_flp_test_99",
+        "post_id": "itm_flp_test_99",
+        "title": "Genuine Test Product",
+        "platform": "flipkart",
+        "comments": [
+            {"text": "Genuine review, outstanding performance and fast delivery!", "rating": 5, "author": "Real User 1"},
+            {"comment": "Worst display quality, cracked screen on arrival", "stars": 1, "reviewer": "Real User 2"},
+            {"review_text": "Average battery life, works for daily usage", "rating": 3, "user": "Real User 3"}
+        ]
+    }
+
+    res = client.post("/api/ingest-browser", json=payload)
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["post_id"] == "itm_flp_test_99"
+    assert data["total_valid_comments"] == 3
+    assert data["data_source_badge"] == "LIVE: Browser Extension (Verified)"
+    assert data["is_demo"] is False
+    assert len(data["sample_comments"]) == 3
+
+    # Check star ratings preserved
+    stars_present = [c.get("star_rating") for c in data["sample_comments"]]
+    assert 5 in stars_present
+    assert 1 in stars_present
+    assert 3 in stars_present
+
+    # 2. Subsequent POST /api/analyze for itm_flp_test_99 re-uses authentic cached data
+    analyze_res = client.post("/api/analyze", json={"post_id": "itm_flp_test_99", "platform": "flipkart"})
+    assert analyze_res.status_code == 200, analyze_res.text
+    a_data = analyze_res.json()
+    assert a_data["post_id"] == "itm_flp_test_99"
+    assert a_data["total_valid_comments"] == 3
+    assert a_data["data_source_badge"] == "LIVE: Browser Extension (Verified)"
+    assert a_data["is_demo"] is False
+
+    # 3. Test empty comments payload rejection with 400
+    bad_res_1 = client.post("/api/ingest-browser", json={
+        "post_url": "https://www.flipkart.com/item/p/empty",
+        "comments": []
+    })
+    assert bad_res_1.status_code == 400
+
+    bad_res_2 = client.post("/api/ingest-browser", json={
+        "post_url": "https://www.flipkart.com/item/p/whitespace",
+        "comments": [{"text": "   "}]
+    })
+    assert bad_res_2.status_code == 400
+    assert "No reviews found" in bad_res_2.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_flipkart_multiple_review_cards_extraction_and_zero_synthetic_padding():
+    """
+    Verify:
+    1. Direct parsing of 5 distinct Flipkart review cards extracts all 5 reviews accurately.
+    2. Star ratings (5, 4, 3, 2, 1) and titles/bodies are parsed with zero collisions.
+    3. Ingesting them sets data_source_badge='LIVE: Browser Extension (Verified)', is_demo=False.
+    4. Exactly 5 reviews are preserved: ZERO fake/synthetic reviews are generated or padded.
+    """
+    from fastapi.testclient import TestClient
+    from bs4 import BeautifulSoup
+    from app.main import app
+
+    # Simulated Flipkart HTML containing 5 distinct review cards with "Certified Buyer"
+    html_markup = """
+    <div class="col JOp12">
+      <div class="col EPCmJX">
+        <div class="XQDdHH">5 ★</div>
+        <p class="z9E0IG">Terrific purchase</p>
+        <div class="ZmyHeo">Super fast delivery and great build quality! Battery easily lasts 2 days. READ MORE</div>
+        <p class="_2NsDsF">Rohan Sharma</p>
+        <span class="_2mcMHG">Certified Buyer</span>
+      </div>
+      <div class="col EPCmJX">
+        <div class="XQDdHH">4 ★</div>
+        <p class="z9E0IG">Value-for-money</p>
+        <div class="ZmyHeo">Good display and sound quality. Camera is decent in daylight but average in low light. READ MORE</div>
+        <p class="_2NsDsF">Priya Verma</p>
+        <span class="_2mcMHG">Certified Buyer</span>
+      </div>
+      <div class="col EPCmJX">
+        <div class="XQDdHH">3 ★</div>
+        <p class="z9E0IG">Average experience</p>
+        <div class="ZmyHeo">Heating issues during charging. Performance is okay for daily use but not for gaming. READ MORE</div>
+        <p class="_2NsDsF">Amit Kumar</p>
+        <span class="_2mcMHG">Certified Buyer</span>
+      </div>
+      <div class="col EPCmJX">
+        <div class="XQDdHH">2 ★</div>
+        <p class="z9E0IG">Disappointing</p>
+        <div class="ZmyHeo">Delivery was delayed by 5 days and box seal was torn. Product looks slightly used. READ MORE</div>
+        <p class="_2NsDsF">Sneha Patel</p>
+        <span class="_2mcMHG">Certified Buyer</span>
+      </div>
+      <div class="col EPCmJX">
+        <div class="XQDdHH">1 ★</div>
+        <p class="z9E0IG">Defective product</p>
+        <div class="ZmyHeo">Screen flickering and touch sensor not responding at all. Return request is pending! READ MORE</div>
+        <p class="_2NsDsF">Vikram Singh</p>
+        <span class="_2mcMHG">Certified Buyer</span>
+      </div>
+    </div>
+    """
+
+    soup = BeautifulSoup(html_markup, "html.parser")
+    cards = soup.select("div.col.EPCmJX")
+    assert len(cards) == 5
+
+    parsed_reviews = []
+    for idx, c in enumerate(cards):
+        rating_elem = c.select_one("div.XQDdHH")
+        star = int(rating_elem.get_text(strip=True).split()[0])
+        title_elem = c.select_one("p.z9E0IG")
+        title = title_elem.get_text(strip=True) if title_elem else ""
+        body_elem = c.select_one("div.ZmyHeo")
+        body = body_elem.get_text(strip=True).replace("READ MORE", "").strip() if body_elem else ""
+        full_text = f"{title}. {body}" if title and not body.startswith(title) else body
+        author_elem = c.select_one("p._2NsDsF")
+        author = author_elem.get_text(strip=True) if author_elem else f"user_{idx}"
+        is_verified = "Certified Buyer" in c.get_text()
+
+        parsed_reviews.append({
+            "raw_text": full_text,
+            "star_rating": star,
+            "anonymized_author_id": author,
+            "verified_purchase": is_verified,
+        })
+
+    assert len(parsed_reviews) == 5
+    assert [r["star_rating"] for r in parsed_reviews] == [5, 4, 3, 2, 1]
+
+    # Ingest the 5 parsed reviews through /api/ingest-browser
+    client = TestClient(app)
+    ingest_res = client.post("/api/ingest-browser", json={
+        "post_url": "https://www.flipkart.com/item/p/itm_flp_real_5_reviews",
+        "post_id": "itm_flp_real_5_reviews",
+        "title": "Flipkart Real 5 Reviews Test",
+        "platform": "flipkart",
+        "comments": parsed_reviews,
+    })
+
+    assert ingest_res.status_code == 200, ingest_res.text
+    data = ingest_res.json()
+    assert data["post_id"] == "itm_flp_real_5_reviews"
+    assert data["total_valid_comments"] == 5
+    assert data["data_source_badge"] == "LIVE: Browser Extension (Verified)"
+    assert data["is_demo"] is False
+    assert len(data["sample_comments"]) == 5
+
+    # Verify each distinct review is preserved with exact star rating and zero synthetic padding
+    extracted_texts = [c["raw_text"] for c in data["sample_comments"]]
+    assert any("Terrific purchase" in t for t in extracted_texts)
+    assert any("Value-for-money" in t for t in extracted_texts)
+    assert any("Average experience" in t for t in extracted_texts)
+    assert any("Disappointing" in t for t in extracted_texts)
+    assert any("Defective product" in t for t in extracted_texts)
+
+    ratings_in_data = [c.get("star_rating") for c in data["sample_comments"]]
+    assert set(ratings_in_data) == {1, 2, 3, 4, 5}
+
+    # Verify subsequent POST /api/analyze does NOT regenerate or pad fake data
+    analyze_res = client.post("/api/analyze", json={
+        "post_id": "itm_flp_real_5_reviews",
+        "platform": "flipkart"
+    })
+    assert analyze_res.status_code == 200
+    a_data = analyze_res.json()
+    assert a_data["total_valid_comments"] == 5
+    assert a_data["is_demo"] is False
+    assert a_data["data_source_badge"] == "LIVE: Browser Extension (Verified)"
+
+
+def test_flipkart_2026_acer_nitro_review_card_parsing():
+    """
+    Verify 2026 Flipkart DOM review card structure (Acer Nitro 5 live test format):
+    - Star header: '5.0 • Fabulous!'
+    - Product variant noise: 'Review for: Color Herald Grey • Dedicated Graphic Memory Capacity 8 GB...'
+    - Review body: 'Amazing laptop.'
+    - Reviewer line: 'Saurabh Adhikari, Nainital'
+    - Upvote counter noise: 'Helpful for 5'
+    - Verification anchor: 'Verified Purchase • 26 days ago'
+
+    Ensures:
+    1. Extracted raw_text is 'Fabulous! — Amazing laptop.'
+    2. Does NOT include 'Review for: Color Herald Grey...' or 'Helpful for 5' or JSON fragments
+    3. Extracted star_rating is 5
+    4. Author is 'Saurabh Adhikari, Nainital'
+    5. verified_purchase is True
+    6. Timestamp is normalized from '26 days ago' to standard ISO-8601 UTC
+    """
+    from bs4 import BeautifulSoup
+    from app.extractor import FlipkartExtractor
+    from app.preprocessor import CommentPreprocessor
+    import hashlib
+
+    acer_nitro_html = """
+    <html>
+      <head><title>Acer Nitro 5 Intel Core i5 14th Gen - (16 GB/512 GB SSD/Windows 11 Home/8 GB Graphics)</title></head>
+      <body>
+        <div class="reviews-list-container">
+          <div class="review-card-wrapper EPCmJX">
+            <div class="rating-title-row">5.0 • Fabulous!</div>
+            <div class="variant-info">Review for: Color Herald Grey • Dedicated Graphic Memory Capacity 8 GB • Processor Gen 14th Gen...</div>
+            <div class="review-body-text">Amazing laptop.</div>
+            <div class="reviewer-name-loc">Saurabh Adhikari, Nainital</div>
+            <div class="helpful-btn-row">Helpful for 5</div>
+            <div class="verified-badge-row">Verified Purchase • 26 days ago</div>
+          </div>
+          <div class="review-card-wrapper EPCmJX">
+            <div class="rating-title-row">4.0 • Good device</div>
+            <div class="variant-info">Review for: Color Black • 16 GB</div>
+            <div class="review-body-text">Great performance for gaming and coding. Battery backup could be better.</div>
+            <div class="reviewer-name-loc">Rahul Verma, Pune</div>
+            <div class="helpful-btn-row">Helpful for 2</div>
+            <div class="verified-badge-row">Verified Purchase • 14 days ago</div>
+          </div>
+        </div>
+      </body>
+    </html>
+    """
+
+    soup = BeautifulSoup(acer_nitro_html, "html.parser")
+    fe = FlipkartExtractor()
+    extracted_reviews = fe.parse_flipkart_review_cards_from_soup(soup, clean_id="acer_nitro_5")
+
+    assert len(extracted_reviews) == 2
+
+    r1 = extracted_reviews[0]
+    # 1. Extracted raw_text is "Fabulous! — Amazing laptop."
+    assert r1.raw_text == "Fabulous! — Amazing laptop."
+    # 2. Does NOT include variant info, helpful counter, or JSON fragments
+    assert "Review for:" not in r1.raw_text
+    assert "Color Herald Grey" not in r1.raw_text
+    assert "Helpful for" not in r1.raw_text
+    assert "viewAllImageUrl" not in r1.raw_text
+    assert "tracking:" not in r1.raw_text
+    assert "Acer Nitro 5" not in r1.raw_text
+
+    # 3. Star rating is 5
+    assert r1.star_rating == 5
+
+    # 4. Author is "Saurabh Adhikari, Nainital" (verified via anonymized author hash)
+    expected_author_hash = hashlib.sha256("Saurabh Adhikari, Nainital".encode()).hexdigest()[:16]
+    assert r1.anonymized_author_id == expected_author_hash
+
+    # 5. Verified purchase is True
+    assert r1.verified_purchase is True
+
+    # 6. Timestamp is normalized from "26 days ago"
+    assert r1.timestamp == "26 days ago"
+    cp = CommentPreprocessor()
+    normalized_ts = cp.normalize_timestamp(r1.timestamp)
+    assert "T" in normalized_ts and normalized_ts.endswith("Z")
+
+
+def test_flipkart_screenshot_malformed_reviews_and_deduplication():
+    """
+    Verify fixes for the exact Flipkart bugs from the user's live screenshots:
+    1. Input 1: "Fabulous! Amazing laptop. Saurabh Adhikari · 27 days ago" with header
+       "5.0 • Fabulous!" and footer "Helpful for 5 \n 2":
+       - star_rating == 5 (NOT 2!)
+       - author == "Saurabh Adhikari"
+       - raw_text == "Fabulous! — Amazing laptop."
+       - timestamp is normalized to ~27 days before today (NOT today's timestamp!)
+    2. Input 2: "Highly recommended great Hriday Kashyap · 23 days ago" and
+       "• — Highly recommended great Hriday Kashyap Helpful · 23 days ago":
+       - Normalize to the EXACT SAME deduplication key
+       - Produce only 1 entry ("Highly recommended — great" by "Hriday Kashyap")
+    """
+    from bs4 import BeautifulSoup
+    from app.extractor import FlipkartExtractor
+    from app.preprocessor import CommentPreprocessor
+    from app.schemas import CommentInput
+    from datetime import datetime, timezone, timedelta
+
+    # 1. Test Input 1: Card with header "5.0 • Fabulous!", body text containing author/date suffix, and footer dislike "2"
+    card1_html = """
+    <html>
+      <body>
+        <div class="reviews-list-container">
+          <div class="review-card-wrapper EPCmJX">
+            <div class="rating-title-row">5.0 • Fabulous!</div>
+            <div class="review-body-text">Amazing laptop. Saurabh Adhikari · 27 days ago</div>
+            <div class="helpful-footer">
+              <span>Helpful for 5</span>
+              <span class="dislike-count">2</span>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+    """
+    soup1 = BeautifulSoup(card1_html, "html.parser")
+    fe = FlipkartExtractor()
+    extracted1 = fe.parse_flipkart_review_cards_from_soup(soup1, clean_id="acer_nitro")
+    assert len(extracted1) == 1
+    r1 = extracted1[0]
+
+    # Star rating is 5 (NOT 2 from dislike footer!)
+    assert r1.star_rating == 5
+
+    # Author is Saurabh Adhikari (extracted from suffix)
+    assert r1.author == "Saurabh Adhikari"
+
+    # raw_text is "Fabulous! — Amazing laptop."
+    assert r1.raw_text == "Fabulous! — Amazing laptop."
+
+    # Timestamp normalized from "27 days ago" is 27 days before today (NOT today's timestamp!)
+    assert r1.timestamp == "27 days ago"
+    cp = CommentPreprocessor()
+    norm_ts = cp.normalize_timestamp(r1.timestamp)
+    now = datetime.now(timezone.utc)
+    expected_approx_date = (now - timedelta(days=27)).strftime("%Y-%m-%d")
+    today_date = now.strftime("%Y-%m-%d")
+    assert norm_ts.startswith(expected_approx_date), f"Expected date {expected_approx_date}, got {norm_ts}"
+    assert not norm_ts.startswith(today_date), "Timestamp should NOT be today's date!"
+
+    # 2. Test Input 2: Two duplicate cards that differ only by bullet/dash prefix and "Helpful" suffix
+    card2_html = """
+    <html>
+      <body>
+        <div class="reviews-list-container">
+          <div class="review-card-wrapper EPCmJX">
+            <div class="rating-title-row">5.0 • Highly recommended</div>
+            <div class="review-body-text">great Hriday Kashyap · 23 days ago</div>
+          </div>
+          <div class="review-card-wrapper EPCmJX">
+            <div class="rating-title-row">• — Highly recommended</div>
+            <div class="review-body-text">great Hriday Kashyap Helpful · 23 days ago</div>
+          </div>
+        </div>
+      </body>
+    </html>
+    """
+    soup2 = BeautifulSoup(card2_html, "html.parser")
+    extracted2 = fe.parse_flipkart_review_cards_from_soup(soup2, clean_id="acer_nitro")
+
+    # Extractor deduplication produces only 1 review
+    assert len(extracted2) == 1
+    r2 = extracted2[0]
+    assert r2.raw_text == "Highly recommended — great"
+    assert r2.author == "Hriday Kashyap"
+    assert r2.timestamp == "23 days ago"
+
+    # Preprocessor deduplication also catches both strings if fed as CommentInputs
+    raw_inputs = [
+        CommentInput(
+            comment_id="c1",
+            raw_text="Highly recommended great Hriday Kashyap · 23 days ago",
+            timestamp="23 days ago",
+            anonymized_author_id="usr_3112",
+            author="Hriday Kashyap",
+        ),
+        CommentInput(
+            comment_id="c2",
+            raw_text="• — Highly recommended great Hriday Kashyap Helpful · 23 days ago",
+            timestamp="23 days ago",
+            anonymized_author_id="usr_3112",
+            author="Hriday Kashyap",
+        ),
+    ]
+    cleaned_comments, removed_count = cp.filter_bots_and_spam(raw_inputs)
+    assert len(cleaned_comments) == 1
+    assert removed_count == 1
+
+
+@pytest.mark.anyio
+async def test_rapidapi_instagram_and_settings_endpoints():
+    """
+    Verify RapidAPI endpoint and key settings for both Instagram and Amazon:
+    - /api/settings/keys returns rapidapi_key_configured
+    - /api/instagram/rapidapi returns status when called
+    - /api/amazon/rapidapi returns status when called
+    """
+    from app.main import get_settings_keys, update_settings_keys, fetch_instagram_rapidapi, fetch_amazon_rapidapi
+    from app.schemas import SettingsKeysUpdate, RapidApiInstagramRequest, RapidApiAmazonRequest
+
+    import os
+    orig_key = os.environ.get("RAPIDAPI_KEY", "")
+
+    # Test settings update
+    await update_settings_keys(SettingsKeysUpdate(rapidapi_key="test_rapid_key_12345"))
+    keys_resp = await get_settings_keys()
+    assert keys_resp.rapidapi_key_configured is True
+    assert "rapidapi_key" in keys_resp.masked_keys
+
+    # Test /api/instagram/rapidapi endpoint with shortcode
+    req = RapidApiInstagramRequest(shortcode="C-demo123", max_comments=10)
+    rapid_res = await fetch_instagram_rapidapi(req)
+    assert rapid_res["status"] in ("ok", "no_key", "quota_exceeded")
+
+    # Test /api/amazon/rapidapi endpoint with ASIN
+    amz_req = RapidApiAmazonRequest(asin="B09X6GMNP7", country_code="IN", max_reviews=10)
+    amz_res = await fetch_amazon_rapidapi(amz_req)
+    assert amz_res["status"] in ("ok", "no_key")
+
+    # Restore original RapidAPI key in settings
+    if orig_key:
+        await update_settings_keys(SettingsKeysUpdate(rapidapi_key=orig_key))
+
+

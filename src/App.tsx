@@ -34,6 +34,10 @@ import {
   Upload,
   GitCompare,
   History,
+  Database,
+  Cpu,
+  ChevronRight,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 import { SentimentDonutChart } from './components/SentimentDonutChart';
@@ -44,6 +48,10 @@ import { LiveInsightsPanel } from './components/LiveInsightsPanel';
 import { HistoryView } from './components/HistoryView';
 import { MultiComparisonView } from './components/MultiComparisonView';
 import { ProductPreviewDrawer } from './components/ProductPreviewDrawer';
+import { CommandPalette } from './components/CommandPalette';
+import { SentimentTelemetryRibbon } from './components/SentimentTelemetryRibbon';
+import { ActiveFilterBar } from './components/ActiveFilterBar';
+import { YouTubeIcon, InstagramIcon, AmazonIcon, FlipkartIcon } from './components/PlatformIcons';
 import {
   SentimentBreakdownRow,
   Tier2RootCauseBreakdown,
@@ -60,36 +68,40 @@ const DEMO_PRESETS = [
     id: 'yt_demo_72neg',
     platform: 'youtube' as const,
     label: 'YouTube Flagged Upload (>70% Neg)',
-    icon: Youtube,
-    badge: 'Social Media',
-    color: 'from-rose-500 to-red-600',
+    icon: YouTubeIcon,
+    badge: 'YouTube',
+    badgeColor: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+    iconBox: 'bg-rose-500/15 text-rose-400 border border-rose-500/30',
     description: '1,045 Comments • Critical 72% Negative Alert Active'
   },
   {
     id: 'ig_demo_creator_reel',
     platform: 'instagram' as const,
     label: 'Instagram Creator Reel',
-    icon: Instagram,
-    badge: 'Social Media',
-    color: 'from-pink-500 to-purple-600',
+    icon: InstagramIcon,
+    badge: 'Instagram',
+    badgeColor: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    iconBox: 'bg-purple-500/15 text-purple-400 border border-purple-500/30',
     description: 'Graph Ingestion • Creator Engagement Benchmark'
   },
   {
     id: 'amz_smartphone_reviews',
     platform: 'amazon' as const,
-    label: 'Amazon Smartphone Reviews (E-Comm)',
-    icon: ShoppingBag,
-    badge: 'E-Commerce',
-    color: 'from-amber-500 to-orange-600',
+    label: 'Amazon Smartphone Reviews',
+    icon: AmazonIcon,
+    badge: 'Amazon',
+    badgeColor: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    iconBox: 'bg-amber-500/15 text-amber-400 border border-amber-500/30',
     description: '1,250 Reviews • ASIN: B09X6GMNP7 • 1★-5★ Hinglish'
   },
   {
     id: 'flp_electronics_sale',
     platform: 'flipkart' as const,
-    label: 'Flipkart Electronics Sale (E-Comm)',
-    icon: ShoppingBag,
-    badge: 'E-Commerce',
-    color: 'from-blue-500 to-indigo-600',
+    label: 'Flipkart Electronics Sale',
+    icon: FlipkartIcon,
+    badge: 'Flipkart',
+    badgeColor: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    iconBox: 'bg-blue-500/15 text-blue-400 border border-blue-500/30',
     description: '1,250 Reviews • FSN: MOBGH73XHZ6QG9FZ • 76% Neg Alert'
   }
 ];
@@ -121,6 +133,7 @@ export default function App() {
   const [apifyToken, setApifyToken] = useState<string>(() => localStorage.getItem('APIFY_API_TOKEN') || '');
   const [instagramToken, setInstagramToken] = useState<string>(() => localStorage.getItem('INSTAGRAM_ACCESS_TOKEN') || '');
   const [scraperApiKey, setScraperApiKey] = useState<string>(() => localStorage.getItem('SCRAPER_API_KEY') || '');
+  const [rapidApiKey, setRapidApiKey] = useState<string>(() => localStorage.getItem('RAPIDAPI_KEY') || '');
 
   // Report & Loading State
   const [report, setReport] = useState<CachedReport | null>(null);
@@ -137,15 +150,54 @@ export default function App() {
   // Filter & Search State
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [feedFilter, setFeedFilter] = useState<'ALL' | 'Negative' | 'Positive' | 'Neutral'>('ALL');
-  const [selectedRootCauseFilter, setSelectedRootCauseFilter] = useState<string>('ALL');
+  const [selectedSentimentFilter, setSelectedSentimentFilter] = useState<'Negative' | 'Positive' | 'Neutral' | null>(null);
+  const [selectedRootCauseFilter, setSelectedRootCauseFilter] = useState<string | null>(null);
+  const [selectedStarFilter, setSelectedStarFilter] = useState<number | null>(null);
+  const [selectedKeywordFilter, setSelectedKeywordFilter] = useState<string | null>(null);
+  const [onlySarcastic, setOnlySarcastic] = useState<boolean>(false);
+  const [onlyVerified, setOnlyVerified] = useState<boolean>(false);
+
+  // Command Palette State & Global Key Listener (Ctrl+K / Cmd+K)
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const scrollToExplorer = () => {
+    setTimeout(() => {
+      const el = document.getElementById('comment-explorer');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 50);
+  };
+
+  // Sync feedFilter with selectedSentimentFilter
+  const handleSelectSentiment = (sentiment: 'Negative' | 'Positive' | 'Neutral' | null) => {
+    setSelectedSentimentFilter(sentiment);
+    setFeedFilter(sentiment || 'ALL');
+  };
 
   // Fetch server-configured keys on mount
   useEffect(() => {
     fetch('/api/settings/keys')
       .then(res => res.json())
       .then(data => {
-        if (data && data.masked_keys) {
-          console.log('Server keys status:', data);
+        if (data) {
+          if (data.rapidapi_key_configured) {
+            setRapidApiKey(prev => prev || data.masked_keys?.rapidapi_key || 'configured');
+          }
+          if (data.masked_keys) {
+            console.log('Server keys status:', data);
+          }
         }
       })
       .catch(() => {});
@@ -206,7 +258,7 @@ export default function App() {
               .then((r) => r.json())
               .then((rep: CachedReport) => {
                 setReport(rep);
-                setPlatform(rep.platform);
+                setPlatform((rep.platform || 'youtube') as PlatformType);
                 setInputTarget(rep.post_id);
               })
               .catch(() => {});
@@ -234,7 +286,7 @@ export default function App() {
         })
         .then((data: CachedReport) => {
           setReport(data);
-          setPlatform(data.platform);
+          setPlatform((data.platform || 'youtube') as PlatformType);
           setIsLoading(false);
         })
         .catch(() => {
@@ -258,6 +310,7 @@ export default function App() {
     localStorage.setItem('APIFY_API_TOKEN', apifyToken);
     localStorage.setItem('INSTAGRAM_ACCESS_TOKEN', instagramToken);
     localStorage.setItem('SCRAPER_API_KEY', scraperApiKey);
+    localStorage.setItem('RAPIDAPI_KEY', rapidApiKey);
 
     try {
       await fetch('/api/settings/keys', {
@@ -269,6 +322,7 @@ export default function App() {
           apify_api_token: apifyToken || undefined,
           instagram_access_token: instagramToken || undefined,
           scraper_api_key: scraperApiKey || undefined,
+          rapidapi_key: rapidApiKey || undefined,
         })
       });
     } catch (err) {
@@ -285,12 +339,20 @@ export default function App() {
     setInputTarget(presetId);
     setPlatform(found.platform);
     setIsDemoAction(true);
+    setSelectedSentimentFilter(null);
+    setSelectedRootCauseFilter(null);
+    setSelectedStarFilter(null);
+    setSelectedKeywordFilter(null);
+    setOnlySarcastic(false);
+    setOnlyVerified(false);
+    setSearchQuery('');
+    setFeedFilter('ALL');
     handleExecuteAnalysis(presetId, found.platform, modelOption, true);
   };
 
   const handleExecuteAnalysis = async (
     targetStr: string,
-    targetPlatform: 'youtube' | 'instagram' | 'amazon' | 'flipkart',
+    targetPlatform: PlatformType | string,
     targetModel: string,
     isExplicitDemo: boolean
   ) => {
@@ -536,7 +598,7 @@ export default function App() {
 
       const reportData: CachedReport = await res.json();
       setReport(reportData);
-      setPlatform(reportData.platform);
+      setPlatform((reportData.platform || 'youtube') as PlatformType);
       setInputTarget(reportData.post_id);
       setIsDemoAction(false);
       setImportStatus(`✅ Successfully analyzed ${reportData.total_valid_comments} comments!`);
@@ -552,33 +614,67 @@ export default function App() {
     }
   };
 
-  // Filtered comments logic
+  // Filtered comments logic with cross-chart filters
   const filteredComments = useMemo(() => {
     if (!report || !report.sample_comments) return [];
     let list = report.sample_comments;
 
     // Strict Sentiment Filter
-    if (feedFilter !== 'ALL') {
+    if (selectedSentimentFilter) {
+      list = list.filter(c => c.sentiment === selectedSentimentFilter);
+    } else if (feedFilter !== 'ALL') {
       list = list.filter(c => c.sentiment === feedFilter);
     }
 
     // Root Cause Filter
-    if (selectedRootCauseFilter !== 'ALL') {
+    if (selectedRootCauseFilter && selectedRootCauseFilter !== 'ALL') {
       list = list.filter(c => c.root_cause === selectedRootCauseFilter);
+    }
+
+    // Star Rating Filter
+    if (selectedStarFilter !== null) {
+      list = list.filter(c => c.star_rating === selectedStarFilter);
+    }
+
+    // Sarcasm Conflict Filter
+    if (onlySarcastic) {
+      list = list.filter(c => c.irony_sarcasm_detected || (c as any).is_sarcastic);
+    }
+
+    // Verified Buyer Filter
+    if (onlyVerified) {
+      list = list.filter(c => c.verified_purchase);
+    }
+
+    // Keyword Filter
+    if (selectedKeywordFilter) {
+      const kw = selectedKeywordFilter.toLowerCase();
+      list = list.filter(c => c.raw_text.toLowerCase().includes(kw));
     }
 
     // Text Search Filter
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
+      const q = searchQuery.toLowerCase().trim();
       list = list.filter(c =>
         c.raw_text.toLowerCase().includes(q) ||
         (c.root_cause && c.root_cause.toLowerCase().includes(q)) ||
         (c.product_variant && c.product_variant.toLowerCase().includes(q)) ||
-        (c.anonymized_author_id && c.anonymized_author_id.toLowerCase().includes(q))
+        (c.anonymized_author_id && c.anonymized_author_id.toLowerCase().includes(q)) ||
+        ((c as any).author && (c as any).author.toLowerCase().includes(q))
       );
     }
     return list;
-  }, [report, feedFilter, selectedRootCauseFilter, searchQuery]);
+  }, [
+    report,
+    selectedSentimentFilter,
+    feedFilter,
+    selectedRootCauseFilter,
+    selectedStarFilter,
+    onlySarcastic,
+    onlyVerified,
+    selectedKeywordFilter,
+    searchQuery,
+  ]);
 
   // Client-side pagination state for Comment Explorer (50 items/page, zero DOM freezing)
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -586,7 +682,40 @@ export default function App() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [feedFilter, selectedRootCauseFilter, searchQuery, report]);
+  }, [
+    feedFilter,
+    selectedSentimentFilter,
+    selectedRootCauseFilter,
+    selectedStarFilter,
+    onlySarcastic,
+    onlyVerified,
+    selectedKeywordFilter,
+    searchQuery,
+    report,
+  ]);
+
+  const avgCompoundScore = useMemo(() => {
+    if (!report?.sample_comments || report.sample_comments.length === 0) return 0;
+    const sum = report.sample_comments.reduce((acc, c) => acc + (c.score || 0), 0);
+    return sum / report.sample_comments.length;
+  }, [report?.sample_comments]);
+
+  const sarcasmCount = useMemo(() => {
+    if (!report?.sample_comments) return report?.sarcastic_comments_count || 0;
+    return report.sample_comments.filter(c => c.irony_sarcasm_detected || (c as any).is_sarcastic).length;
+  }, [report]);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedSentimentFilter || feedFilter !== 'ALL') count++;
+    if (selectedRootCauseFilter && selectedRootCauseFilter !== 'ALL') count++;
+    if (selectedStarFilter !== null) count++;
+    if (onlySarcastic) count++;
+    if (onlyVerified) count++;
+    if (selectedKeywordFilter) count++;
+    if (searchQuery.trim()) count++;
+    return count;
+  }, [selectedSentimentFilter, feedFilter, selectedRootCauseFilter, selectedStarFilter, onlySarcastic, onlyVerified, selectedKeywordFilter, searchQuery]);
 
   const totalPages = Math.max(1, Math.ceil(filteredComments.length / itemsPerPage));
   const paginatedComments = useMemo(() => {
@@ -600,57 +729,76 @@ export default function App() {
   const isEcommerce = ['amazon', 'flipkart', 'myntra', 'meesho', 'nykaa', 'ajio'].includes(report?.platform?.toLowerCase() || '');
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col font-sans selection:bg-rose-500 selection:text-white">
+    <div className="min-h-screen obsidian-canvas matrix-grid-pattern text-slate-100 flex flex-col font-sans selection:bg-indigo-600 selection:text-white">
       {/* Top Header */}
-      <header className="sticky top-0 z-40 border-b border-[#1e293b] bg-[#090d16]/90 backdrop-blur-md">
+      <header className="sticky top-0 z-40 border-b border-white/5 bg-[#08090C]/90 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-indigo-600 flex items-center justify-center font-black text-white text-lg shadow-lg shadow-emerald-500/25">
+          <div className="flex items-center space-x-3.5">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-extrabold text-white text-sm shadow-md shadow-indigo-600/30 border border-indigo-400/40">
               S2
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h1 className="text-base font-extrabold text-white tracking-tight">Sentinelytics Enterprise Command Center</h1>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">v3.0 Production</span>
+                <h1 className="text-sm font-extrabold text-white tracking-tight">Sentinelytics Command Center</h1>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono">v3.0 PROD</span>
+                {rapidApiKey && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono shadow-sm" title="RapidAPI Dual-Stream Acceleration Active">
+                    <Zap className="w-3 h-3 text-emerald-400" />
+                    RapidAPI Active
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-slate-400">Live Browser Ingestion & 2-Tier NLP Engine</p>
+              <p className="text-xs text-slate-400">Live Browser Ingestion &amp; 2-Tier NLP Engine</p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-3">
+          {/* Center Command Palette Search Pill */}
+          <button
+            onClick={() => setIsCommandPaletteOpen(true)}
+            className="hidden lg:flex items-center space-x-2.5 px-3.5 py-1.5 rounded-xl bg-white/4 hover:bg-white/8 border border-white/10 text-xs text-slate-300 transition cursor-pointer shadow-sm group hover:border-white/20"
+            title="Search actions, presets, and filters (Ctrl+K / Cmd+K)"
+          >
+            <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-400 transition-colors" />
+            <span className="text-slate-400 group-hover:text-slate-200">Search commands, presets, filters...</span>
+            <kbd className="ml-2 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-white/5 border border-white/10 rounded">⌘K</kbd>
+          </button>
+
+          <div className="flex items-center space-x-2 sm:space-x-2.5">
             {report && (
               <button
                 onClick={() => setIsDrawerOpen(true)}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-xs font-bold text-indigo-300 transition cursor-pointer shadow-sm shadow-indigo-500/10"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-600/15 hover:bg-indigo-600/25 border border-indigo-500/35 text-xs font-semibold text-indigo-300 transition cursor-pointer shadow-sm"
                 title="Open Inspection Drawer"
               >
-                <Search className="w-3.5 h-3.5 text-indigo-400" />
-                <span>🔍 Inspector Drawer</span>
+                <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">Inspector Drawer</span>
               </button>
             )}
 
             <button
               onClick={() => setShowExtensionModal(true)}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 border border-emerald-500/40 text-xs font-bold text-emerald-300 transition cursor-pointer shadow-sm shadow-emerald-500/10"
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-xs font-semibold text-emerald-300 transition cursor-pointer shadow-sm"
+              title="Open Browser Extension & Live Collector Guide"
             >
-              <Puzzle className="w-3.5 h-3.5 text-emerald-400" />
-              <span>🧩 Browser Extension</span>
+              <Layers className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Browser Extension</span>
             </button>
 
             <button
               onClick={() => setShowKeysModal(true)}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 transition cursor-pointer"
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-slate-200 transition cursor-pointer"
+              title="Configure API Keys"
             >
               <Key className="w-3.5 h-3.5 text-amber-400" />
-              <span>API Keys (Optional)</span>
+              <span className="hidden sm:inline">API Keys</span>
               {(youtubeApiKey || geminiApiKey || instagramToken || scraperApiKey) && (
-                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
               )}
             </button>
 
-            <div className="hidden sm:flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-xs">
+            <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-white/4 border border-white/8 text-xs font-mono">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span className="text-slate-300 font-medium">Sub-Second Engine (&lt;1s)</span>
+              <span className="text-slate-300 text-[11px] font-medium">Sub-Second (&lt;1s)</span>
             </div>
           </div>
         </div>
@@ -658,7 +806,7 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 flex-1 w-full">
         {/* Navigation Tabs */}
-        <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
+        <div className="flex items-center space-x-2 border-b border-white/5 pb-3">
           <button
             onClick={() => setActiveView('dashboard')}
             className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
@@ -742,19 +890,19 @@ export default function App() {
                   onClick={() => handleSelectPreset(preset.id)}
                   className={`relative p-3.5 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
                     isSelected
-                      ? 'bg-slate-900 border-indigo-500 shadow-lg shadow-indigo-500/10 ring-2 ring-indigo-500/40'
-                      : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+                      ? 'bg-[#141722] border-indigo-500 shadow-xl shadow-indigo-500/10 ring-2 ring-indigo-500/40'
+                      : 'obsidian-card-interactive hover:bg-[#131620]'
                   }`}
                 >
                   <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-2">
-                      <div className={`p-2 rounded-xl bg-gradient-to-tr ${preset.color} text-white shadow-md`}>
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`p-2 rounded-xl ${preset.iconBox || 'bg-white/5 text-slate-300'}`}>
                         <Icon className="w-4 h-4" />
                       </div>
                       <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{preset.badge}</span>
                     </div>
                     {isSelected && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-mono">
                         Active Demo
                       </span>
                     )}
@@ -770,22 +918,22 @@ export default function App() {
         </div>
 
         {/* Live URL Input & Model Selector Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+        <div className="obsidian-card rounded-2xl p-5 shadow-2xl">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
             <div className="sm:col-span-2 lg:col-span-1">
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-semibold text-slate-300">Live URL / Video ID / ASIN / FSN</label>
-                <span className="text-[10px] text-emerald-400 font-semibold flex items-center space-x-1">
+                <span className="text-[10px] text-emerald-400 font-semibold flex items-center space-x-1 font-mono">
                   <Globe className="w-3 h-3" />
-                  <span>Key-Free Scraping</span>
+                  <span>Keyless Ingestion</span>
                 </span>
               </div>
               <input
                 type="text"
                 value={inputTarget}
                 onChange={(e) => handleInputChange(e.target.value)}
-                placeholder="e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                placeholder="e.g. https://www.youtube.com/watch?v=... or ASIN"
+                className="obsidian-input w-full rounded-xl px-3.5 py-2 text-xs font-mono"
               />
             </div>
 
@@ -794,7 +942,7 @@ export default function App() {
               <select
                 value={platform}
                 onChange={(e) => setPlatform(e.target.value as any)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                className="obsidian-input w-full rounded-xl px-3.5 py-2 text-xs font-semibold"
               >
                 <optgroup label="Social Media">
                   <option value="youtube">YouTube (Keyless Scraper / Data API v3)</option>
@@ -816,7 +964,7 @@ export default function App() {
               <select
                 value={modelOption}
                 onChange={(e) => setModelOption(e.target.value as any)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                className="obsidian-input w-full rounded-xl px-3.5 py-2 text-xs font-semibold"
               >
                 <option value="vader_hybrid">VADER + Hinglish & Emojis (Ultra-Fast)</option>
                 <option value="xlm_roberta">XLM-RoBERTa (Multilingual)</option>
@@ -832,17 +980,17 @@ export default function App() {
                   handleExecuteAnalysis(inputTarget, platform, modelOption, false);
                 }}
                 disabled={isLoading}
-                className="w-full px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 via-purple-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 font-bold text-white text-xs shadow-lg shadow-indigo-600/25 transition flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
+                className="btn-primary-solid w-full px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer shadow-lg"
               >
                 {isLoading ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    <RefreshCw className="w-4 h-4 animate-spin text-slate-900" />
                     <span>{isDemoAction ? 'Loading Demo Benchmark...' : 'Scraping Live Comments...'}</span>
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-4 h-4 text-white" />
-                    <span>Scrape & Analyze URL</span>
+                    <Sparkles className="w-4 h-4 text-slate-900" />
+                    <span>Scrape &amp; Analyze Stream</span>
                   </>
                 )}
               </button>
@@ -938,34 +1086,35 @@ export default function App() {
 
         {/* Data Provenance & Credibility Badges Bar */}
         {report && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-[#0f172a] border border-[#1e293b] shadow-md">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl obsidian-card shadow-md">
             <div className="flex items-center flex-wrap gap-2.5">
               {report.is_demo ? (
-                <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-amber-950 text-amber-300 border border-amber-800">
-                  <span className="w-2 h-2 mr-1.5 rounded-full bg-amber-400"></span>
-                  🧪 OFFLINE DEMO PRESET (Sample Dataset)
+                <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-semibold bg-amber-950/60 text-amber-300 border border-amber-800/60">
+                  <Database className="w-3.5 h-3.5 mr-1.5 text-amber-400 shrink-0" />
+                  OFFLINE BENCHMARK DATASET
                 </span>
               ) : (
-                <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                  <span className="w-2 h-2 mr-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                  🟢 LIVE SCRAPED DATA (Real Comments Fetched from URL)
+                <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
+                  <Activity className="w-3.5 h-3.5 mr-1.5 text-emerald-400 shrink-0 animate-pulse" />
+                  LIVE SCRAPED INGESTION
                 </span>
               )}
 
               {/* Enterprise Credibility Badges */}
-              <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-sm">
-                <span className="w-2 h-2 mr-1.5 rounded-full bg-emerald-400"></span>
-                🟢 100% Raw Unedited Comments Analyzed
+              <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                <ShieldCheck className="w-3.5 h-3.5 mr-1.5 text-emerald-400 shrink-0" />
+                100% Raw Comments Audited
               </span>
 
-              <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-sky-500/15 text-sky-300 border border-sky-500/30 shadow-sm">
-                <Zap className="w-3.5 h-3.5 mr-1 text-sky-400" />
-                ⚡ ISO-8601 Timestamp Aligned
+              <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-medium bg-sky-500/10 text-sky-300 border border-sky-500/20">
+                <Clock className="w-3.5 h-3.5 mr-1.5 text-sky-400 shrink-0" />
+                ISO-8601 Temporal Alignment
               </span>
 
               {report.data_source_badge && (
-                <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold bg-indigo-950/80 text-indigo-300 border border-indigo-700/80 shadow-sm">
-                  ⚡ {report.data_source_badge}
+                <span className="inline-flex items-center px-3 py-1 rounded-xl text-xs font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                  <Cpu className="w-3.5 h-3.5 mr-1.5 text-indigo-400 shrink-0" />
+                  {report.data_source_badge.replace(/^[🟢⚡🧪\s]+/, '')}
                 </span>
               )}
 
@@ -977,7 +1126,7 @@ export default function App() {
             <div className="flex items-center space-x-2 text-xs text-slate-400">
               <button
                 onClick={() => setIsDrawerOpen(true)}
-                className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-xs font-bold text-indigo-300 transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-xs font-semibold text-indigo-300 transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
               >
                 <Search className="w-3 h-3 text-indigo-400" />
                 <span>Inspect Feed</span>
@@ -995,19 +1144,50 @@ export default function App() {
           </div>
         )}
 
+        {/* Sentiment Telemetry Ribbon (Full-Width Proportional Metric Bar) */}
+        {report && (
+          <SentimentTelemetryRibbon
+            negCount={negRow.comment_count}
+            negPct={negRow.percentage}
+            posCount={posRow.comment_count}
+            posPct={posRow.percentage}
+            neuCount={neuRow.comment_count}
+            neuPct={neuRow.percentage}
+            totalComments={report.total_valid_comments}
+            avgScore={avgCompoundScore}
+            sarcasmCount={report.sarcastic_comments_count ?? 0}
+            activeSentiment={selectedSentimentFilter}
+            onSelectSentiment={(sentiment) => {
+              setSelectedSentimentFilter(sentiment === selectedSentimentFilter ? null : sentiment);
+              const el = document.getElementById('comment-explorer');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            onlySarcastic={onlySarcastic}
+            onToggleSarcasm={() => {
+              setOnlySarcastic((prev) => !prev);
+              const el = document.getElementById('comment-explorer');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            onScrollToExplorer={() => {
+              const el = document.getElementById('comment-explorer');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+          />
+        )}
+
         {/* High Negative Alert Banner (>70%) */}
         {report?.high_negative_alert && (
-          <div className="bg-rose-950/70 border-2 border-rose-500/80 rounded-2xl p-5 shadow-2xl shadow-rose-950/60 animate-in fade-in duration-300">
+          <div className="bg-rose-950/70 border border-rose-500/80 rounded-2xl p-5 shadow-2xl shadow-rose-950/60 animate-in fade-in duration-300">
             <div className="flex items-start space-x-3">
               <div className="p-2.5 bg-rose-900/80 rounded-xl text-rose-300">
                 <AlertTriangle className="w-6 h-6 text-rose-400" />
               </div>
               <div className="flex-1">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <h2 className="text-sm font-extrabold text-rose-200 tracking-wide uppercase">
+                  <h2 className="text-sm font-bold text-rose-200 tracking-wide uppercase">
                     Critical Sentiment Alert: Negative Polarity Exceeds 70% Threshold
                   </h2>
-                  <span className="self-start sm:self-auto px-3 py-1 rounded-full text-xs font-black bg-rose-500 text-white shadow-md shadow-rose-500/40">
+                  <span className="self-start sm:self-auto px-3 py-1 rounded-full text-xs font-bold bg-rose-500 text-white shadow-md shadow-rose-500/40">
                     {negRow.percentage}% Negative
                   </span>
                 </div>
@@ -1024,15 +1204,15 @@ export default function App() {
         {/* KPI Metric Cards Grid */}
         {report && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3.5">
-            <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-4 flex flex-col justify-between">
-              <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">
+            <div className="obsidian-card rounded-2xl p-4 flex flex-col justify-between">
+              <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">
                 {report.platform_reported_total ? `Platform Total (${report.platform.toUpperCase()})` : 'Raw Ingestion'}
               </p>
-              <p className="text-2xl font-extrabold text-white mt-1">
+              <p className="text-2xl font-bold text-white mt-1 font-mono tabular-nums">
                 {(report.platform_reported_total || report.total_raw_comments).toLocaleString()}
               </p>
               <span className="text-[10px] text-slate-500 mt-1 flex items-center space-x-1">
-                <Zap className="w-3 h-3 text-indigo-400" />
+                <Activity className="w-3 h-3 text-indigo-400" />
                 <span>
                   {report.platform_reported_total
                     ? `Audited: ${report.total_valid_comments.toLocaleString()} items`
@@ -1043,42 +1223,90 @@ export default function App() {
               </span>
             </div>
 
-            <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-4 flex flex-col justify-between">
-              <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Spam / Bots Filtered</p>
-              <p className="text-2xl font-extrabold text-amber-400 mt-1">{report.spam_duplicates_removed.toLocaleString()}</p>
+            <div className="obsidian-card rounded-2xl p-4 flex flex-col justify-between">
+              <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Spam / Bots Filtered</p>
+              <p className="text-2xl font-bold text-amber-400 mt-1 font-mono tabular-nums">{report.spam_duplicates_removed.toLocaleString()}</p>
               <span className="text-[10px] text-slate-500 mt-1">URLs & duplicates</span>
             </div>
 
-            <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-4 flex flex-col justify-between">
-              <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Valid Analyzed</p>
-              <p className="text-2xl font-extrabold text-indigo-400 mt-1">{report.total_valid_comments.toLocaleString()}</p>
+            <div className="obsidian-card rounded-2xl p-4 flex flex-col justify-between">
+              <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Valid Analyzed</p>
+              <p className="text-2xl font-bold text-indigo-400 mt-1 font-mono tabular-nums">{report.total_valid_comments.toLocaleString()}</p>
               <span className="text-[10px] text-slate-500 mt-1">Clean NLP items</span>
             </div>
 
-            <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-4 flex flex-col justify-between">
-              <p className="text-[11px] text-rose-400 font-semibold uppercase tracking-wider">Negative Share</p>
-              <p className="text-2xl font-extrabold text-rose-400 mt-1">{negRow.percentage}%</p>
-              <span className="text-[10px] text-rose-400/80 font-medium mt-1">{negRow.comment_count} items</span>
+            <div
+              onClick={() => {
+                setSelectedSentimentFilter(selectedSentimentFilter === 'Negative' ? null : 'Negative');
+                const el = document.getElementById('comment-explorer');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`obsidian-card rounded-2xl p-4 flex flex-col justify-between cursor-pointer transition-all hover:border-rose-500/50 ${
+                selectedSentimentFilter === 'Negative' ? 'ring-1 ring-rose-500 bg-rose-950/20' : ''
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] text-rose-400 font-medium uppercase tracking-wider">Negative Share</p>
+                <ChevronRight className="w-3 h-3 text-rose-500/60" />
+              </div>
+              <p className="text-2xl font-bold text-rose-400 mt-1 font-mono tabular-nums">{negRow.percentage}%</p>
+              <span className="text-[10px] text-rose-400/80 font-medium mt-1 font-mono tabular-nums">{negRow.comment_count} items &bull; Click to filter</span>
             </div>
 
-            <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-4 flex flex-col justify-between">
-              <p className="text-[11px] text-emerald-400 font-semibold uppercase tracking-wider">Positive Share</p>
-              <p className="text-2xl font-extrabold text-emerald-400 mt-1">{posRow.percentage}%</p>
-              <span className="text-[10px] text-emerald-400/80 font-medium mt-1">{posRow.comment_count} items</span>
+            <div
+              onClick={() => {
+                setSelectedSentimentFilter(selectedSentimentFilter === 'Positive' ? null : 'Positive');
+                const el = document.getElementById('comment-explorer');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`obsidian-card rounded-2xl p-4 flex flex-col justify-between cursor-pointer transition-all hover:border-emerald-500/50 ${
+                selectedSentimentFilter === 'Positive' ? 'ring-1 ring-emerald-500 bg-emerald-950/20' : ''
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] text-emerald-400 font-medium uppercase tracking-wider">Positive Share</p>
+                <ChevronRight className="w-3 h-3 text-emerald-500/60" />
+              </div>
+              <p className="text-2xl font-bold text-emerald-400 mt-1 font-mono tabular-nums">{posRow.percentage}%</p>
+              <span className="text-[10px] text-emerald-400/80 font-medium mt-1 font-mono tabular-nums">{posRow.comment_count} items &bull; Click to filter</span>
             </div>
 
-            <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-4 flex flex-col justify-between">
-              <p className="text-[11px] text-sky-400 font-semibold uppercase tracking-wider">Neutral Share</p>
-              <p className="text-2xl font-extrabold text-sky-400 mt-1">{neuRow.percentage}%</p>
-              <span className="text-[10px] text-sky-400/80 font-medium mt-1">{neuRow.comment_count} items</span>
+            <div
+              onClick={() => {
+                setSelectedSentimentFilter(selectedSentimentFilter === 'Neutral' ? null : 'Neutral');
+                const el = document.getElementById('comment-explorer');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`obsidian-card rounded-2xl p-4 flex flex-col justify-between cursor-pointer transition-all hover:border-sky-500/50 ${
+                selectedSentimentFilter === 'Neutral' ? 'ring-1 ring-sky-500 bg-sky-950/20' : ''
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] text-sky-400 font-medium uppercase tracking-wider">Neutral Share</p>
+                <ChevronRight className="w-3 h-3 text-sky-500/60" />
+              </div>
+              <p className="text-2xl font-bold text-sky-400 mt-1 font-mono tabular-nums">{neuRow.percentage}%</p>
+              <span className="text-[10px] text-sky-400/80 font-medium mt-1 font-mono tabular-nums">{neuRow.comment_count} items &bull; Click to filter</span>
             </div>
 
-            <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-4 flex flex-col justify-between">
-              <p className="text-[11px] text-amber-400 font-semibold uppercase tracking-wider">Sarcasm Clashes</p>
-              <p className="text-2xl font-extrabold text-amber-400 mt-1">
+            <div
+              onClick={() => {
+                setOnlySarcastic((prev) => !prev);
+                const el = document.getElementById('comment-explorer');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`obsidian-card rounded-2xl p-4 flex flex-col justify-between cursor-pointer transition-all hover:border-amber-500/50 ${
+                onlySarcastic ? 'ring-1 ring-amber-500 bg-amber-950/20' : ''
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] text-amber-400 font-medium uppercase tracking-wider">Sarcasm Clashes</p>
+                <Sparkles className="w-3 h-3 text-amber-400/80" />
+              </div>
+              <p className="text-2xl font-bold text-amber-400 mt-1 font-mono tabular-nums">
                 {(report.sarcastic_comments_count ?? 0).toLocaleString()}
               </p>
-              <span className="text-[10px] text-amber-400/80 font-medium mt-1">Text-Emoji Clashes</span>
+              <span className="text-[10px] text-amber-400/80 font-medium mt-1">Text-Emoji Clashes &bull; Filter</span>
             </div>
           </div>
         )}
@@ -1104,6 +1332,12 @@ export default function App() {
                 breakdown={report.breakdown}
                 totalValidComments={report.total_valid_comments}
                 highNegativeAlert={report.high_negative_alert}
+                activeCategory={selectedSentimentFilter}
+                onSelectCategory={(cat) => {
+                  setSelectedSentimentFilter(cat === selectedSentimentFilter ? null : cat);
+                  const el = document.getElementById('comment-explorer');
+                  if (el) el.scrollIntoView({ behavior: 'smooth' });
+                }}
               />
             </div>
 
@@ -1113,7 +1347,11 @@ export default function App() {
                 rootCauses={report.tier2_root_causes}
                 platform={report.platform}
                 selectedCause={selectedRootCauseFilter === 'ALL' ? null : selectedRootCauseFilter}
-                onSelectCause={(cause) => setSelectedRootCauseFilter(cause || 'ALL')}
+                onSelectCause={(cause) => {
+                  setSelectedRootCauseFilter(cause || 'ALL');
+                  const el = document.getElementById('comment-explorer');
+                  if (el) el.scrollIntoView({ behavior: 'smooth' });
+                }}
               />
             </div>
 
@@ -1130,7 +1368,18 @@ export default function App() {
                 keywordFrequencies={report.keyword_frequencies}
                 starDistribution={report.star_rating_distribution}
                 isEcommerce={isEcommerce}
-                onSelectKeyword={(kw) => setSearchQuery(kw)}
+                selectedKeyword={selectedKeywordFilter}
+                onSelectKeyword={(kw) => {
+                  setSelectedKeywordFilter(kw === selectedKeywordFilter ? null : kw);
+                  const el = document.getElementById('comment-explorer');
+                  if (el) el.scrollIntoView({ behavior: 'smooth' });
+                }}
+                selectedStarRating={selectedStarFilter}
+                onSelectStarRating={(star) => {
+                  setSelectedStarFilter(star === selectedStarFilter ? null : star);
+                  const el = document.getElementById('comment-explorer');
+                  if (el) el.scrollIntoView({ behavior: 'smooth' });
+                }}
               />
             </div>
           </div>
@@ -1138,16 +1387,17 @@ export default function App() {
 
         {/* Sub-Second Export Panel */}
         {report && (
-          <div className="bg-gradient-to-r from-slate-900 via-indigo-950/50 to-slate-900 border border-indigo-900/60 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="obsidian-card p-5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
             <div>
               <div className="flex items-center space-x-2">
-                <h3 className="text-sm font-extrabold text-white">⚡ Sub-Second (&lt;1s) Pre-Computed Exporters</h3>
-                <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/30">
+                <Download className="w-4 h-4 text-indigo-400" />
+                <h3 className="text-sm font-bold text-white">Instant Pre-Computed Exporters (&lt;15ms)</h3>
+                <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 rounded border border-emerald-500/30">
                   Zero Inference Wait
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Exports stream directly from atomic JSON cache. Download executive ReportLab PDF or multi-sheet CSV report instantly.
+                Exports stream directly from atomic memory cache. Download executive ReportLab PDF or multi-sheet CSV report instantly.
               </p>
               {exportLatency && (
                 <p className="text-xs font-mono text-emerald-400 font-bold mt-1.5 animate-pulse">
@@ -1159,17 +1409,17 @@ export default function App() {
             <div className="flex items-center space-x-3 w-full sm:w-auto">
               <button
                 onClick={() => handleDownloadExport('pdf')}
-                className="flex-1 sm:flex-none px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-2 shadow-lg shadow-rose-600/20 cursor-pointer"
+                className="flex-1 sm:flex-none px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold transition flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
               >
                 <FileText className="w-4 h-4" />
-                <span>Download PDF (&lt;1s)</span>
+                <span>Download PDF (&lt;15ms)</span>
               </button>
               <button
                 onClick={() => handleDownloadExport('csv')}
-                className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-2 cursor-pointer"
+                className="flex-1 sm:flex-none px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition flex items-center justify-center space-x-2 cursor-pointer"
               >
                 <TableIcon className="w-4 h-4" />
-                <span>Download CSV (&lt;1s)</span>
+                <span>Download CSV (&lt;15ms)</span>
               </button>
             </div>
           </div>
@@ -1177,16 +1427,16 @@ export default function App() {
 
         {/* Audited Comment & Review Explorer (50 items/page with zero DOM lag) */}
         {report && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+          <div id="comment-explorer" className="obsidian-card rounded-2xl p-5 shadow-xl space-y-4 scroll-mt-24">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-white">Audited Comment & Review Explorer</h3>
                 <p className="text-xs text-slate-400">
-                  Showing <span className="text-white font-bold">{filteredComments.length.toLocaleString()}</span> matching of {(report.sample_comments || []).length.toLocaleString()} audited items
+                  Showing <span className="text-white font-mono font-bold tabular-nums">{filteredComments.length.toLocaleString()}</span> matching of {(report.sample_comments || []).length.toLocaleString()} audited items
                 </p>
               </div>
 
-              {/* Search and Filters */}
+              {/* Search input */}
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
@@ -1195,106 +1445,112 @@ export default function App() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search text, root causes, authors..."
-                    className="bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 w-56"
+                    className="obsidian-input rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 w-56"
                   />
-                </div>
-
-                <div className="flex items-center space-x-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
-                  <button
-                    onClick={() => setFeedFilter('ALL')}
-                    className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
-                      feedFilter === 'ALL' ? 'bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    All ({(report.sample_comments || []).length})
-                  </button>
-                  <button
-                    onClick={() => setFeedFilter('Negative')}
-                    className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
-                      feedFilter === 'Negative' ? 'bg-rose-500 text-white shadow' : 'text-rose-400 hover:text-rose-300'
-                    }`}
-                  >
-                    Negative ({(report.sample_comments || []).filter(c => c.sentiment === 'Negative').length})
-                  </button>
-                  <button
-                    onClick={() => setFeedFilter('Positive')}
-                    className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
-                      feedFilter === 'Positive' ? 'bg-emerald-500 text-white shadow' : 'text-emerald-400 hover:text-emerald-300'
-                    }`}
-                  >
-                    Positive ({(report.sample_comments || []).filter(c => c.sentiment === 'Positive').length})
-                  </button>
-                  <button
-                    onClick={() => setFeedFilter('Neutral')}
-                    className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
-                      feedFilter === 'Neutral' ? 'bg-sky-500 text-white shadow' : 'text-sky-400 hover:text-sky-300'
-                    }`}
-                  >
-                    Neutral ({(report.sample_comments || []).filter(c => c.sentiment === 'Neutral').length})
-                  </button>
                 </div>
               </div>
             </div>
 
+            {/* Cross-Filtering Active Filter Bar with Instant CSV Export */}
+            <ActiveFilterBar
+              totalComments={report.sample_comments?.length || 0}
+              filteredCount={filteredComments.length}
+              activeSentiment={selectedSentimentFilter}
+              onClearSentiment={() => setSelectedSentimentFilter(null)}
+              activeRootCause={selectedRootCauseFilter === 'ALL' ? null : selectedRootCauseFilter}
+              onClearRootCause={() => setSelectedRootCauseFilter('ALL')}
+              activeStarRating={selectedStarFilter}
+              onClearStarRating={() => setSelectedStarFilter(null)}
+              onlySarcastic={onlySarcastic}
+              onToggleSarcasm={() => setOnlySarcastic(false)}
+              selectedKeyword={selectedKeywordFilter}
+              onClearKeyword={() => setSelectedKeywordFilter(null)}
+              searchQuery={searchQuery}
+              onClearSearch={() => setSearchQuery('')}
+              onlyVerified={onlyVerified}
+              onToggleVerified={() => setOnlyVerified(false)}
+              onResetAllFilters={() => {
+                setSelectedSentimentFilter(null);
+                setSelectedRootCauseFilter('ALL');
+                setSelectedStarFilter(null);
+                setSelectedKeywordFilter(null);
+                setOnlySarcastic(false);
+                setOnlyVerified(false);
+                setSearchQuery('');
+                setFeedFilter('ALL');
+              }}
+              filteredItems={filteredComments}
+            />
+
             {/* Scrollable Comments List (Paginated at 50/page for smooth rendering) */}
-            <div className="space-y-3 max-h-[32rem] overflow-y-auto pr-2">
+            <div className="space-y-3 max-h-[32rem] overflow-y-auto pr-2 custom-scrollbar">
               {filteredComments.length === 0 ? (
                 <div className="text-center py-12 text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
-                  No comments matching the selected filter ({feedFilter}) or search query.
+                  No comments matching the selected filter or search query.
                 </div>
               ) : (
                 paginatedComments.map((c) => {
                   const isNeg = c.sentiment === 'Negative';
                   const isPos = c.sentiment === 'Positive';
+                  const isSarcastic = Boolean(c.irony_sarcasm_detected || (c as any).is_sarcastic);
+
                   return (
                     <div
                       key={c.comment_id}
-                      className="bg-slate-950/80 border border-slate-800/90 rounded-xl p-3.5 text-xs flex flex-col space-y-2 hover:border-slate-700 transition"
+                      className="bg-[#08090C] border border-[#1e2230] rounded-xl p-3.5 text-xs flex flex-col space-y-2 hover:border-[#2e3448] transition"
                     >
                       <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center flex-wrap gap-2">
                           <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
                               isNeg
-                                ? 'bg-rose-950/60 text-rose-300 border-rose-800'
+                                ? 'bg-rose-950/60 text-rose-300 border-rose-800/70'
                                 : isPos
-                                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800'
-                                : 'bg-sky-950/60 text-sky-300 border-sky-800'
+                                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/70'
+                                : 'bg-sky-950/60 text-sky-300 border-sky-800/70'
                             }`}
                           >
                             {c.sentiment} ({c.score > 0 ? `+${c.score}` : c.score})
                           </span>
 
                           {c.root_cause && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-950/90 text-rose-300 border border-rose-800/80">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-950/70 text-rose-300 border border-rose-800/60">
                               {c.root_cause}
                             </span>
                           )}
 
                           {c.star_rating && (
-                            <span className="flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950/60 text-amber-300 border border-amber-800">
-                              <span>{c.star_rating}</span>
+                            <span className="flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-950/50 text-amber-300 border border-amber-800/60">
+                              <span className="font-mono">{c.star_rating}</span>
                               <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
                             </span>
                           )}
 
                           {c.verified_purchase && (
-                            <span className="flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-900">
+                            <span className="flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-950/50 text-emerald-400 border border-emerald-900/60">
                               <ShieldCheck className="w-3 h-3 text-emerald-400" />
                               <span>Verified Buyer</span>
+                            </span>
+                          )}
+
+                          {/* Forensic Sarcasm Badge */}
+                          {isSarcastic && (
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
+                              <span>Sarcasm Polarity Override &bull; Score: {c.score > 0 ? `+${c.score}` : c.score}</span>
                             </span>
                           )}
                         </div>
 
                         <div className="flex items-center space-x-3 text-[10px] text-slate-500 font-mono">
                           {c.product_variant && <span className="text-indigo-400">{c.product_variant}</span>}
-                          <span>Author: {c.anonymized_author_id.slice(0, 8)}</span>
+                          <span>Author: {(c as any).author || (c.anonymized_author_id.startsWith("usr_") ? c.anonymized_author_id.slice(0, 8) : c.anonymized_author_id)}</span>
                           <span>Likes: {c.like_count}</span>
                           <span>{c.timestamp.replace('T', ' ').replace('Z', '')}</span>
                         </div>
                       </div>
 
-                      <p className="text-slate-200 text-xs leading-relaxed">{c.raw_text}</p>
+                      <p className="text-slate-200 text-xs leading-relaxed font-sans">{c.raw_text}</p>
                     </div>
                   );
                 })
@@ -1671,6 +1927,18 @@ export default function App() {
               </div>
 
               <div>
+                <label className="block text-slate-300 font-semibold mb-1">RapidAPI Key (Instagram &amp; Amazon Live Dual-Stream)</label>
+                <input
+                  type="password"
+                  value={rapidApiKey}
+                  onChange={(e) => setRapidApiKey(e.target.value)}
+                  placeholder="RapidAPI Secret Key (e.g. 5431abc...)"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">Powers Instagram (<code>instagram-scraper-stable-api</code>) &amp; Amazon (<code>amazon-online-data-api</code>) live streams.</p>
+              </div>
+
+              <div>
                 <label className="block text-slate-300 font-semibold mb-1">Amazon / Flipkart Scraper API Key (Optional)</label>
                 <input
                   type="password"
@@ -1701,6 +1969,33 @@ export default function App() {
         </div>
       )}
 
+      {/* Interactive Command Palette Modal (Ctrl+K / Cmd+K) */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onSelectPreset={handleSelectPreset}
+        onFilterSentiment={handleSelectSentiment}
+        onFilterSarcasm={(s) => { setOnlySarcastic(s); scrollToExplorer(); }}
+        onFilterStars={(st) => { setSelectedStarFilter(st); scrollToExplorer(); }}
+        onClearFilters={() => {
+          setSelectedSentimentFilter(null);
+          setSelectedRootCauseFilter(null);
+          setSelectedStarFilter(null);
+          setSelectedKeywordFilter(null);
+          setOnlySarcastic(false);
+          setOnlyVerified(false);
+          setSearchQuery('');
+          setFeedFilter('ALL');
+        }}
+        onExportPdf={() => handleDownloadExport('pdf')}
+        onExportCsv={() => handleDownloadExport('csv')}
+        onOpenView={(v) => setActiveView(v)}
+        onOpenDrawer={() => setIsDrawerOpen(true)}
+        onOpenKeysModal={() => setShowKeysModal(true)}
+        onOpenExtensionModal={() => setShowExtensionModal(true)}
+        activeFilterCount={activeFilterCount}
+      />
+
       {/* Sliding Right-Hand Inspector Drawer */}
       <ProductPreviewDrawer
         isOpen={isDrawerOpen}
@@ -1709,10 +2004,10 @@ export default function App() {
       />
 
       {/* Footer */}
-      <footer className="border-t border-slate-800 bg-slate-900/60 py-4">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
-          <span>Social Media & E-Commerce Sentiment Analysis Platform (v2.0)</span>
-          <span className="font-mono">YouTube • Instagram • Amazon • Flipkart • Key-Free Live Ingestion</span>
+      <footer className="border-t border-white/5 bg-[#08090C] py-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2 font-mono">
+          <span>Sentinelytics Intelligence &bull; Production Release</span>
+          <span>YouTube &bull; Instagram &bull; Amazon &bull; Flipkart &bull; Keyless Ingestion</span>
         </div>
       </footer>
     </div>

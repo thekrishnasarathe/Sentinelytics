@@ -29,6 +29,8 @@ from .schemas import (
     HistoryItemResponse,
     CompareRequest,
     CompareResponse,
+    RapidApiInstagramRequest,
+    RapidApiAmazonRequest,
 )
 from .extractor import (
     YouTubeExtractor,
@@ -38,6 +40,7 @@ from .extractor import (
     UniversalEcommerceExtractor,
     parse_input_url_or_id,
     parse_url_and_detect_platform,
+    get_rapidapi_key,
     DEMO_POST_IDS,
 )
 from .preprocessor import CommentPreprocessor
@@ -73,9 +76,18 @@ EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 SAMPLE_DATA_DIR.mkdir(parents=True, exist_ok=True)
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
-# Mount static files if directory exists
+# Mount static and assets files if directories exist
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+ASSETS_DIR = STATIC_DIR / "assets"
+if not ASSETS_DIR.exists():
+    alt_assets = Path("sentiment_module/app/static/assets")
+    if alt_assets.exists():
+        ASSETS_DIR = alt_assets
+
+if ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 
 # Shared singletons
 preprocessor = CommentPreprocessor()
@@ -146,7 +158,7 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         is_demo = False
     elif platform == "youtube":
         extractor = YouTubeExtractor(api_key=request.youtube_api_key)
-        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=False)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
@@ -161,7 +173,7 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
             access_token=request.instagram_access_token,
             apify_token=request.apify_api_token,
         )
-        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=False)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
@@ -176,7 +188,7 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
             api_key=request.scraper_api_key,
             apify_token=request.apify_api_token,
         )
-        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=False)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
@@ -191,7 +203,7 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
             api_key=request.scraper_api_key,
             apify_token=request.apify_api_token,
         )
-        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=False)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
@@ -203,7 +215,7 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         warning_message = post_data.warning_message
     elif platform in ("myntra", "meesho", "nykaa", "ajio"):
         extractor = UniversalEcommerceExtractor(platform=platform)
-        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=True)
+        post_data = extractor.extract(clean_id, max_comments=None if unbounded else 1500, is_demo=is_demo, fallback_on_blocked=False)
         raw_comments = post_data.comments
         post_url = post_data.post_url
         pages_fetched = post_data.pages_fetched
@@ -230,6 +242,7 @@ def execute_analysis_pipeline(request: AnalyzeRequest) -> CachedReport:
         preprocessed_items.append({
             "comment_id": c.comment_id,
             "anonymized_author_id": c.anonymized_author_id,
+            "author": c.author or c.anonymized_author_id,
             "raw_text": c.raw_text,
             "cleaned_text": p_res["cleaned_text"],
             "timestamp": norm_ts,
@@ -332,6 +345,7 @@ async def get_settings_keys():
     apify_token = os.environ.get("APIFY_API_TOKEN", "")
     ig_token = os.environ.get("INSTAGRAM_ACCESS_TOKEN", "")
     scraper_key = os.environ.get("SCRAPER_API_KEY", "")
+    rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
 
     return SettingsKeysResponse(
         youtube_api_key_configured=bool(yt_key),
@@ -339,12 +353,14 @@ async def get_settings_keys():
         apify_api_token_configured=bool(apify_token),
         instagram_access_token_configured=bool(ig_token),
         scraper_api_key_configured=bool(scraper_key),
+        rapidapi_key_configured=bool(rapidapi_key),
         masked_keys={
             "youtube_api_key": _mask_key(yt_key),
             "gemini_api_key": _mask_key(gemini_key),
             "apify_api_token": _mask_key(apify_token),
             "instagram_access_token": _mask_key(ig_token),
             "scraper_api_key": _mask_key(scraper_key),
+            "rapidapi_key": _mask_key(rapidapi_key),
         }
     )
 
@@ -361,6 +377,7 @@ async def update_settings_keys(payload: SettingsKeysUpdate):
         "APIFY_API_TOKEN": payload.apify_api_token,
         "INSTAGRAM_ACCESS_TOKEN": payload.instagram_access_token,
         "SCRAPER_API_KEY": payload.scraper_api_key,
+        "RAPIDAPI_KEY": payload.rapidapi_key,
     }
 
     env_paths = [
@@ -452,6 +469,14 @@ async def ingest_browser(request: BrowserIngestRequest, background_tasks: Backgr
         raise HTTPException(
             status_code=400,
             detail="No comments provided in browser payload. Ensure comments are rendered on the active tab."
+        )
+
+    # Validate that at least one comment contains non-whitespace text
+    valid_text_count = sum(1 for c in request.comments if (c.raw_text or "").strip())
+    if valid_text_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No reviews found on active page DOM. Ensure review content is rendered before ingesting."
         )
 
     raw_target = request.post_url or request.post_id
@@ -626,6 +651,83 @@ async def analyze_quick(payload: Dict[str, Any]):
         "star_counts": {str(k): v for k, v in star_counts.items()},
         "total_stars": total_stars,
         "avg_star": round(star_sum / total_stars, 1) if total_stars > 0 else None,
+    }
+
+
+@app.post("/api/instagram/rapidapi")
+async def fetch_instagram_rapidapi(payload: RapidApiInstagramRequest):
+    """
+    RapidAPI Instagram Comment Fetcher Endpoint for Browser Extension Boost & Direct Ingestion.
+    Fetches real-time comments for an Instagram post or reel via RapidAPI scraper.
+    """
+    api_key = get_rapidapi_key()
+    if not api_key:
+        return {
+            "status": "no_key",
+            "total": 0,
+            "comments": [],
+            "message": "RAPIDAPI_KEY is not configured on backend. Extension continues in authenticated browser session mode."
+        }
+
+    raw_id = payload.shortcode or payload.post_id or payload.post_url or ""
+    clean_id, _, _ = parse_url_and_detect_platform(raw_id, default_platform="instagram")
+    if not clean_id or clean_id == "unknown":
+        m = re.search(r"/(?:p|reel|tv)/([A-Za-z0-9_-]+)", raw_id)
+        if m:
+            clean_id = m.group(1)
+        else:
+            clean_id = raw_id.strip()
+
+    if not clean_id:
+        raise HTTPException(status_code=400, detail="Missing valid Instagram shortcode or post URL.")
+
+    ig_extractor = InstagramExtractor(rapidapi_key=api_key)
+    comments = ig_extractor._fetch_rapidapi(clean_id, api_key, max_comments=payload.max_comments or 500)
+
+    if ig_extractor.last_quota_exceeded:
+        return {
+            "status": "quota_exceeded",
+            "shortcode": clean_id,
+            "total": 0,
+            "comments": [],
+            "message": "⚠️ RapidAPI monthly request quota exceeded on Basic plan (20 req/mo limit). Please use the Browser Extension Live Collector on your active tab!"
+        }
+
+    return {
+        "status": "ok",
+        "shortcode": clean_id,
+        "total": len(comments),
+        "comments": [c.model_dump() for c in comments],
+        "source": "rapidapi"
+    }
+
+
+@app.post("/api/amazon/rapidapi")
+async def fetch_amazon_rapidapi(payload: RapidApiAmazonRequest):
+    """
+    RapidAPI Amazon Review Fetcher Endpoint for Browser Extension Boost & Direct Ingestion.
+    Fetches real-time reviews for an Amazon ASIN via Amazon Online Data API (firstocenka) + Direct HTML Hybrid.
+    """
+    api_key = get_rapidapi_key()
+    raw_asin = payload.asin or payload.post_id or payload.post_url or ""
+    clean_asin, _, _ = parse_input_url_or_id(raw_asin, default_platform="amazon")
+    clean_asin = re.sub(r'[^A-Z0-9]', '', clean_asin.strip().upper())
+    if not clean_asin or len(clean_asin) < 5:
+        raise HTTPException(status_code=400, detail="Missing valid Amazon ASIN.")
+
+    amz_extractor = AmazonExtractor(rapidapi_key=api_key)
+    comments = amz_extractor._fetch_rapidapi(
+        asin=clean_asin,
+        api_key=api_key,
+        country_code=payload.country_code or "IN",
+        max_comments=payload.max_reviews or 200,
+    )
+    return {
+        "status": "ok",
+        "asin": clean_asin,
+        "total": len(comments),
+        "comments": [c.model_dump() for c in comments],
+        "source": "rapidapi_hybrid"
     }
 
 

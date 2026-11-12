@@ -33,7 +33,7 @@ export const ProductPreviewDrawer: React.FC<ProductPreviewDrawerProps> = ({
   if (!isOpen || !report) return null;
 
   const isEcommerce = ['amazon', 'flipkart', 'myntra', 'meesho', 'nykaa', 'ajio'].includes(
-    report.platform.toLowerCase()
+    (report.platform || '').toLowerCase()
   );
 
   // Calculate Verified Buyer %
@@ -388,4 +388,6 @@ export const ProductPreviewDrawer: React.FC<ProductPreviewDrawerProps> = ({
     </div>
   );
 };
+
+export default ProductPreviewDrawer;
 

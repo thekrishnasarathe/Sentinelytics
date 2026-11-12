@@ -22,6 +22,7 @@ import httpx
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from .schemas import CommentInput, PostInput
+from .preprocessor import CommentPreprocessor
 
 # Load environment variables automatically
 load_dotenv()
@@ -40,6 +41,132 @@ DEMO_POST_IDS = {
 def get_author_hash(handle: str) -> str:
     """Generate deterministic SHA-256 author hash for spam/bot deduplication."""
     return hashlib.sha256(handle.encode("utf-8")).hexdigest()[:16]
+
+
+def get_rapidapi_key() -> str:
+    """Always reload .env so updated runtime keys take effect without server restart."""
+    for env_path in [
+        Path(".env"),
+        Path(__file__).resolve().parent.parent / ".env",
+        Path(__file__).resolve().parent.parent.parent / ".env",
+    ]:
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path, override=True)
+    return (os.environ.get("RAPIDAPI_KEY") or "").strip()
+
+
+def extract_comments_from_rapidapi_json(payload: Any, platform: str = "instagram") -> List[CommentInput]:
+    """
+    Universally extracts comments/reviews from any nested RapidAPI JSON structure.
+    Recursively traverses dicts and lists looking for comment/review text and metadata.
+    """
+    results: List[CommentInput] = []
+    seen_texts: Set[str] = set()
+
+    TEXT_KEYS = (
+        "text", "body", "comment", "review_text", "content", "review_comment",
+        "reviewDescription", "reviewText", "caption", "textDisplay"
+    )
+    TITLE_KEYS = ("title", "review_title", "reviewTitle", "heading")
+    AUTHOR_KEYS = ("username", "author", "user", "owner", "profile_name", "reviewer_name", "name", "userProfileName")
+    RATING_KEYS = ("rating", "star_rating", "stars", "ratingScore", "score", "review_star_rating")
+    DATE_KEYS = ("created_at", "created_at_utc", "timestamp", "date", "review_date", "publishedAt", "time")
+    LIKE_KEYS = ("like_count", "likes", "likes_count", "helpful_votes", "helpfulVotesCount", "votes")
+
+    def _walk(node: Any):
+        if isinstance(node, dict):
+            text_val = None
+            for tk in TEXT_KEYS:
+                val = node.get(tk)
+                if isinstance(val, str) and val.strip() and len(val.strip()) > 1:
+                    if not val.strip().startswith("{") and not val.strip().startswith("<"):
+                        text_val = val.strip()
+                        break
+
+            if text_val:
+                title_val = ""
+                for tit in TITLE_KEYS:
+                    tv = node.get(tit)
+                    if isinstance(tv, str) and tv.strip():
+                        title_val = tv.strip()
+                        break
+
+                full_text = f"{title_val} — {text_val}" if title_val and not text_val.startswith(title_val) else text_val
+                norm_key = re.sub(r'[^a-zA-Z0-9]', '', full_text).lower()
+                if len(norm_key) >= 3 and norm_key not in seen_texts:
+                    seen_texts.add(norm_key)
+
+                    author_name = f"{platform}_user"
+                    for ak in AUTHOR_KEYS:
+                        av = node.get(ak)
+                        if isinstance(av, str) and av.strip():
+                            author_name = av.strip()
+                            break
+                        elif isinstance(av, dict):
+                            sub_name = av.get("username") or av.get("name")
+                            if isinstance(sub_name, str) and sub_name.strip():
+                                author_name = sub_name.strip()
+                                break
+
+                    stars = None
+                    if platform in ("amazon", "flipkart"):
+                        stars = 5
+                        for rk in RATING_KEYS:
+                            rv = node.get(rk)
+                            if rv is not None:
+                                try:
+                                    stars = max(1, min(5, round(float(rv))))
+                                    break
+                                except Exception:
+                                    pass
+
+                    ts_str = datetime.now(timezone.utc).isoformat()
+                    for dk in DATE_KEYS:
+                        dv = node.get(dk)
+                        if dv:
+                            try:
+                                ts_str = CommentPreprocessor.normalize_timestamp(str(dv))
+                                break
+                            except Exception:
+                                pass
+
+                    likes = 0
+                    for lk in LIKE_KEYS:
+                        lv = node.get(lk)
+                        if lv is not None:
+                            try:
+                                likes = int(lv)
+                                break
+                            except Exception:
+                                pass
+
+                    cid = str(node.get("id") or node.get("pk") or node.get("review_id") or f"{platform}_rapid_{len(results)}")
+                    verified = bool(node.get("verified_purchase", True) or node.get("is_verified", True))
+
+                    results.append(
+                        CommentInput(
+                            comment_id=cid,
+                            raw_text=full_text,
+                            timestamp=ts_str,
+                            like_count=likes,
+                            anonymized_author_id=get_author_hash(author_name),
+                            author=author_name,
+                            star_rating=stars,
+                            verified_purchase=verified,
+                            platform=platform,
+                        )
+                    )
+
+            for v in node.values():
+                if isinstance(v, (dict, list)):
+                    _walk(v)
+
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(payload)
+    return results
 
 
 def parse_input_url_or_id(raw_input: str, default_platform: str = "youtube") -> Tuple[str, str, str]:
@@ -174,162 +301,7 @@ def parse_input_url_or_id(raw_input: str, default_platform: str = "youtube") -> 
 parse_url_and_detect_platform = parse_input_url_or_id
 
 
-def extract_slug_and_category(url_or_id: str, platform: str) -> Tuple[str, str]:
-    """Extracts human-readable product title and category from URL path."""
-    clean = re.sub(r"https?://[^/]+/", "", url_or_id)
-    clean = re.sub(r"\?.*$", "", clean)
-    parts = [p for p in clean.split("/") if p and p not in ("p", "product", "dp", "buy", "product-reviews", "watch", "reel")]
-    slug = max(parts, key=len) if parts else url_or_id
-    slug_words = [w for w in re.split(r"[-_]", slug) if not w.isdigit() and len(w) > 1]
-    title = " ".join(slug_words).title() if slug_words else f"{platform.capitalize()} Product"
-
-    low = title.lower()
-    if any(w in low for w in ["phone", "smartphone", "pro", "plus", "5g", "ram", "earbuds", "headphones", "bluetooth", "charger", "laptop"]):
-        category = "Electronics & Audio"
-    elif any(w in low for w in ["dress", "kurti", "saree", "shirt", "jeans", "tshirt", "shoes", "sneakers", "hoodie", "top", "pants"]):
-        category = "Fashion & Apparel"
-    elif any(w in low for w in ["serum", "lipstick", "cream", "shampoo", "perfume", "skincare", "lotion", "matte", "gloss"]):
-        category = "Beauty & Personal Care"
-    else:
-        category = "Retail Goods"
-    return title, category
-
-
-def generate_context_aware_ecommerce_dataset(
-    title: str,
-    category: str,
-    platform: str,
-    count: int = 140,
-) -> List[CommentInput]:
-    """Generates authentic domain-specific reviews tailored to the exact product title and category."""
-    import random
-    now = datetime.now(timezone.utc)
-    comments: List[CommentInput] = []
-
-    if category == "Fashion & Apparel":
-        neg_templates = [
-            ("Fabric quality is very cheap and synthetic. Not as shown in photos for {title}.", 1),
-            ("Received completely wrong size for {title}! Ordered XL but got Small. Bilkul bekar return process.", 1),
-            ("Delivery delayed by 5 days and package was badly torn. Worst courier service.", 2),
-            ("Color faded after just one gentle wash! Paisa barbaad on {title}.", 1),
-            ("Stitching came undone at the seams after 2 hours of wearing {title}. Very poor finish.", 2),
-            ("Overpriced for this low-grade material. Return was rejected by seller without reason.", 1),
-            ("The fit is awkward and tight around shoulders. Different from model picture.", 2),
-            ("Received used item with stains on {title}! Ghatiya quality control.", 1),
-        ]
-        pos_templates = [
-            ("Superb fit and beautiful fabric! Loved this {title}, looks very elegant. Paisa vasool!", 5),
-            ("Amazing quality for the price! Exactly as pictured on {platform}. Highly recommended.", 5),
-            ("Comfortable cotton material, stitching is top-notch. Delivered in 2 days.", 5),
-            ("True to size and very vibrant colors. Got so many compliments wearing {title}!", 5),
-            ("Great purchase! Fabric is breathable and soft. Will definitely buy again.", 4),
-            ("Value for money! Fast delivery and neat packaging by {platform}.", 4),
-            ("Mast outfit! Looks premium and classy.", 5),
-        ]
-        neu_templates = [
-            ("Average quality. Color is slightly darker than the product photos for {title}.", 3),
-            ("Fit is okay, but fabric could be softer. Decent for daily wear.", 3),
-            ("Delivery was on time. Nothing extraordinary, standard quality.", 3),
-            ("Looks nice but requires hand washing. Sizing runs slightly large.", 3),
-        ]
-    elif category == "Beauty & Personal Care":
-        neg_templates = [
-            ("Caused skin irritation and redness after applying {title}! Not recommended for sensitive skin.", 1),
-            ("Received fake duplicate product with no batch number or seal on {title}. Bilkul nakli!", 1),
-            ("Bottle cap was broken and half the product leaked inside the box. Messy delivery.", 1),
-            ("Smell is weird and chemical-like, definitely expired stock sent by seller.", 2),
-            ("Overpriced and does not work as claimed. Waste of money.", 2),
-            ("Return was denied even after sharing damaged photos. Pathetic customer care.", 1),
-        ]
-        pos_templates = [
-            ("Holy grail product! {title} worked wonders on my skin within a week. Genuine authentic item.", 5),
-            ("Super fast delivery by {platform}. Sealed authentic product with great discount. Love it!", 5),
-            ("Amazing texture, absorbs quickly and gives glowing finish. Highly recommended!", 5),
-            ("100% original product, verified batch code. Very happy with purchase.", 5),
-            ("Good quality, subtle pleasant fragrance and long-lasting effect.", 4),
-        ]
-        neu_templates = [
-            ("Decent product. Does the job but takes time to see visible results.", 3),
-            ("Packaging is cute, but finish is a bit sticky for humid weather.", 3),
-            ("Expected better hydration, but average for the price.", 3),
-        ]
-    else:  # Electronics & General
-        neg_templates = [
-            ("Battery drains very fast on {title}. Heats up within 15 minutes of usage.", 1),
-            ("Received defective unit, won't turn on or charge. Return request rejected.", 1),
-            ("Courier agent delivered badly crushed box. Screen was cracked on arrival.", 1),
-            ("Counterfeit fake product received! Serial number mismatch with manufacturer.", 1),
-            ("Paisa barbaad, stopped working on day 3. Pathetic warranty service.", 1),
-            ("Sound quality has crackling noise and Bluetooth disconnects frequently.", 2),
-        ]
-        pos_templates = [
-            ("Awesome performance for {title}! Battery backup lasts 2 days easily. Paisa vasool!", 5),
-            ("Superb build quality and crystal clear audio/display. Delivered in 24 hours.", 5),
-            ("Original genuine product verified on brand portal. Butter smooth experience.", 5),
-            ("Best gadget under this budget! Sleek design and fast charging.", 5),
-            ("Very satisfied with {title}. Value for money and great packaging.", 4),
-        ]
-        neu_templates = [
-            ("Average build quality. Features are okay for the price tag.", 3),
-            ("Works fine, but companion app has minor UI lag. Decent overall.", 3),
-            ("Good budget option, nothing extraordinary.", 3),
-        ]
-
-    idx = 1
-    for i in range(count):
-        r_type = random.random()
-        days_ago = random.randint(1, 28)
-        ts = (now - timedelta(days=days_ago, minutes=random.randint(5, 1400))).strftime("%Y-%m-%dT%H:%M:%SZ")
-        author = f"buyer_{platform}_{idx}"
-
-        if r_type < 0.45:
-            tmpl, rating = random.choice(neg_templates)
-            txt = tmpl.format(title=title, platform=platform.capitalize())
-            comments.append(
-                CommentInput(
-                    comment_id=f"{platform}_{idx}",
-                    raw_text=txt,
-                    timestamp=ts,
-                    like_count=random.randint(0, 15),
-                    anonymized_author_id=get_author_hash(author),
-                    star_rating=rating,
-                    verified_purchase=random.choice([True, True, False]),
-                )
-            )
-        elif r_type < 0.85:
-            tmpl, rating = random.choice(pos_templates)
-            txt = tmpl.format(title=title, platform=platform.capitalize())
-            comments.append(
-                CommentInput(
-                    comment_id=f"{platform}_{idx}",
-                    raw_text=txt,
-                    timestamp=ts,
-                    like_count=random.randint(0, 25),
-                    anonymized_author_id=get_author_hash(author),
-                    star_rating=rating,
-                    verified_purchase=True,
-                )
-            )
-        else:
-            tmpl, rating = random.choice(neu_templates)
-            txt = tmpl.format(title=title, platform=platform.capitalize())
-            comments.append(
-                CommentInput(
-                    comment_id=f"{platform}_{idx}",
-                    raw_text=txt,
-                    timestamp=ts,
-                    like_count=random.randint(0, 5),
-                    anonymized_author_id=get_author_hash(author),
-                    star_rating=rating,
-                    verified_purchase=True,
-                )
-            )
-        idx += 1
-
-    return comments
-
-
-# --- Realistic Sample Fallback Dataset Generators ---
+# --- Realistic Sample Fallback Dataset Generators (ONLY FOR THE 4 DEMO PRESETS) ---
 
 def generate_realistic_flagged_dataset(output_path: Optional[Path] = None) -> Dict[str, Any]:
     """Generate 1,045 raw YouTube comments for offline demo testing."""
@@ -1196,57 +1168,18 @@ class YouTubeExtractor:
                     platform_reported_total=platform_total or len(extracted_live),
                 )
             else:
-                if fallback_on_blocked:
-                    sample_file = Path("sample_data/youtube_flagged_post.json")
-                    if not sample_file.exists():
-                        sample_file = Path("sentiment_module/sample_data/youtube_flagged_post.json")
-                    with open(sample_file, "r", encoding="utf-8") as f:
-                        b_data = json.load(f)
-                    b_comments = [CommentInput(**c) for c in b_data["comments"]]
-                    return PostInput(
-                        post_id=clean_id,
-                        post_url=canonical_url,
-                        platform="youtube",
-                        comments=b_comments,
-                        unbounded_fetch=(max_comments is None),
-                        pages_fetched=1,
-                        is_demo=False,
-                        data_source="Fallback Benchmark Dataset (YouTube Scraper Blocked or Inactive)",
-                        data_source_badge="BENCHMARK PRESET (CAPTCHA DETECTED)",
-                        platform_reported_total=platform_total or len(b_comments),
-                        warning_message="⚠️ YouTube scraping temporarily throttled or comments disabled — Showing Benchmark Dataset (Use the Sentinelytics Chrome Extension on the open tab to push 100% live browser comments)",
-                    )
                 raise ValueError(
                     f"No comments found for YouTube video '{clean_id}'. "
-                    "The video may have comments disabled or be unavailable."
+                    "The video may have comments disabled or be unavailable. "
+                    "Use the Sentinelytics Chrome Extension on your active video tab to capture live comments."
                 )
 
         except Exception as e:
-            if fallback_on_blocked:
-                sample_file = Path("sample_data/youtube_flagged_post.json")
-                if not sample_file.exists():
-                    sample_file = Path("sentiment_module/sample_data/youtube_flagged_post.json")
-                with open(sample_file, "r", encoding="utf-8") as f:
-                    b_data = json.load(f)
-                b_comments = [CommentInput(**c) for c in b_data["comments"]]
-                return PostInput(
-                    post_id=clean_id,
-                    post_url=canonical_url,
-                    platform="youtube",
-                    comments=b_comments,
-                    unbounded_fetch=(max_comments is None),
-                    pages_fetched=1,
-                    is_demo=False,
-                    data_source="Fallback Benchmark Dataset (YouTube Scraper Blocked or Inactive)",
-                    data_source_badge="BENCHMARK PRESET (CAPTCHA DETECTED)",
-                    platform_reported_total=platform_total or len(b_comments),
-                    warning_message="⚠️ YouTube scraping temporarily throttled or comments disabled — Showing Benchmark Dataset (Use the Sentinelytics Chrome Extension on the open tab to push 100% live browser comments)",
-                )
             if isinstance(e, ValueError):
                 raise e
             raise ValueError(
-                f"Failed to fetch live YouTube comments for '{clean_id}': {str(e)}. "
-                "Ensure video is public and comments are enabled, or select the YouTube Demo Preset."
+                f"Failed to scrape YouTube comments for '{clean_id}': {str(e)}. "
+                "Use the Sentinelytics Chrome Extension on your active video tab to capture live comments."
             )
 
 
@@ -1264,7 +1197,9 @@ class AmazonExtractor:
         api_key: Optional[str] = None,
         scraper_url: Optional[str] = None,
         apify_token: Optional[str] = None,
+        rapidapi_key: Optional[str] = None,
     ):
+        self.rapidapi_key = rapidapi_key or os.environ.get("RAPIDAPI_KEY")
         self.api_key = api_key or os.environ.get("AMAZON_SCRAPER_API_KEY") or os.environ.get("SCRAPER_API_KEY") or os.environ.get("RAINFOREST_API_KEY")
         self.scraper_url = scraper_url
         self.apify_token = apify_token or os.environ.get("APIFY_API_TOKEN")
@@ -1279,7 +1214,7 @@ class AmazonExtractor:
         clean_id, _, canonical_url = parse_input_url_or_id(post_id, default_platform="amazon")
 
         # 1. Offline Demo Preset explicitly requested
-        if is_demo or clean_id in ("amz_smartphone_reviews", "B09X6GMNP7"):
+        if is_demo or clean_id == "amz_smartphone_reviews":
             sample_candidates = [
                 Path("sample_data/amazon_product_reviews.json"),
                 Path("sentiment_module/sample_data/amazon_product_reviews.json"),
@@ -1311,135 +1246,46 @@ class AmazonExtractor:
                 platform_reported_total=len(comments),
             )
 
-        # 2. Direct Key-Free HTML Review Scraping
+        # 2. Direct Key-Free HTML Review Scraping & RapidAPI Hybrid
         domain = "amazon.com" if ".com" in canonical_url else "amazon.in"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-User": "?1",
-            "Upgrade-Insecure-Requests": "1",
-        }
-        extracted_html: List[CommentInput] = []
+        country_code = "US" if ".com" in canonical_url else "IN"
 
-        try:
-            with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-                # First attempt: Scrape /dp/{clean_id} for public reviews and metadata
-                dp_url = f"https://www.{domain}/dp/{clean_id}"
-                resp_dp = client.get(dp_url, headers=headers)
-                if resp_dp.status_code == 200 and "Type the characters you see in this image" not in resp_dp.text:
-                    soup_dp = BeautifulSoup(resp_dp.text, "html.parser")
-                    dp_blocks = soup_dp.select('#cm-cr-dp-review-list [data-hook="review"], div[data-hook="review"]')
-                    for idx, block in enumerate(dp_blocks):
-                        body_elem = block.select_one('span[data-hook="review-body"]')
-                        if not body_elem:
-                            continue
-                        body_text = body_elem.get_text(separator=" ", strip=True)
-                        title_elem = block.select_one('a[data-hook="review-title"] span, span[data-hook="review-title"]')
-                        title_text = title_elem.get_text(strip=True) if title_elem else ""
-                        full_text = f"{title_text}. {body_text}" if title_text and not body_text.startswith(title_text) else body_text
+        # Check RapidAPI first (with dynamic .env reloading)
+        rapid_key = self.rapidapi_key or get_rapidapi_key()
+        if rapid_key:
+            try:
+                extracted_rapid = self._fetch_rapidapi(clean_id, rapid_key, canonical_url, max_comments, country_code=country_code)
+                if extracted_rapid:
+                    return PostInput(
+                        post_id=clean_id,
+                        post_url=canonical_url,
+                        platform="amazon",
+                        comments=extracted_rapid,
+                        unbounded_fetch=(max_comments is None),
+                        pages_fetched=max(1, len(extracted_rapid) // 10),
+                        is_demo=False,
+                        data_source="Live Ingestion via RapidAPI & Direct Amazon Scraper",
+                        data_source_badge="LIVE: RapidAPI + Amazon Scraper",
+                        platform_reported_total=len(extracted_rapid),
+                    )
+            except Exception:
+                pass
 
-                        star_elem = block.select_one('i[data-hook="review-star-rating"] span, i[data-hook="cmps-review-star-rating"] span, span.a-icon-alt')
-                        stars = 5
-                        if star_elem:
-                            try:
-                                stars = int(float(star_elem.get_text().split()[0]))
-                            except Exception:
-                                stars = 5
-
-                        author_elem = block.select_one("span.a-profile-name")
-                        author_name = author_elem.get_text(strip=True) if author_elem else f"buyer_dp_{idx}"
-                        verified = bool(block.select_one('span[data-hook="avp-badge"]') or "Verified Purchase" in block.get_text())
-
-                        extracted_html.append(
-                            CommentInput(
-                                comment_id=f"amz_dp_{clean_id}_{idx}",
-                                raw_text=full_text,
-                                timestamp="2026-11-03T00:00:00Z",
-                                like_count=0,
-                                anonymized_author_id=get_author_hash(author_name),
-                                star_rating=stars,
-                                verified_purchase=verified,
-                                product_variant=None,
-                            )
-                        )
-
-                # Second attempt: Paginate /product-reviews/{clean_id}
-                page = 1
-                max_pages = max(1, (max_comments + 9) // 10) if max_comments else 25
-                while page <= max_pages:
-                    target_url = f"https://www.{domain}/product-reviews/{clean_id}?pageNumber={page}"
-                    resp = client.get(target_url, headers=headers)
-                    text = resp.text
-                    if "api-services-support@amazon.com" in text or "Type the characters you see in this image" in text:
-                        break
-
-                    soup = BeautifulSoup(text, "html.parser")
-                    review_blocks = soup.select('div[data-hook="review"]')
-                    if not review_blocks:
-                        break
-
-                    for idx, block in enumerate(review_blocks):
-                        body_elem = block.select_one('span[data-hook="review-body"]')
-                        if not body_elem:
-                            continue
-                        body_text = body_elem.get_text(separator=" ", strip=True)
-                        title_elem = block.select_one('a[data-hook="review-title"] span, span[data-hook="review-title"]')
-                        title_text = title_elem.get_text(strip=True) if title_elem else ""
-                        full_text = f"{title_text}. {body_text}" if title_text and not body_text.startswith(title_text) else body_text
-
-                        star_elem = block.select_one('i[data-hook="review-star-rating"] span') or block.select_one('i[data-hook="cmps-review-star-rating"] span')
-                        stars = 5
-                        if star_elem:
-                            try:
-                                stars = int(float(star_elem.get_text().split()[0]))
-                            except Exception:
-                                stars = 5
-
-                        author_elem = block.select_one("span.a-profile-name")
-                        author_name = author_elem.get_text(strip=True) if author_elem else f"buyer_{page}_{idx}"
-                        verified = bool(block.select_one('span[data-hook="avp-badge"]') or "Verified Purchase" in block.get_text())
-
-                        extracted_html.append(
-                            CommentInput(
-                                comment_id=f"amz_live_{clean_id}_{page}_{idx}",
-                                raw_text=full_text,
-                                timestamp="2026-11-03T00:00:00Z",
-                                like_count=0,
-                                anonymized_author_id=get_author_hash(author_name),
-                                star_rating=stars,
-                                verified_purchase=verified,
-                                product_variant=None,
-                            )
-                        )
-                        if max_comments and len(extracted_html) >= max_comments:
-                            break
-
-                    if max_comments and len(extracted_html) >= max_comments:
-                        break
-                    page += 1
-
-            if extracted_html:
-                return PostInput(
-                    post_id=clean_id,
-                    post_url=canonical_url,
-                    platform="amazon",
-                    comments=extracted_html,
-                    unbounded_fetch=(max_comments is None),
-                    pages_fetched=max(1, page),
-                    is_demo=False,
-                    data_source="Live Web Scrape (Zero API Key - Amazon BS4 Scraper)",
-                    data_source_badge="LIVE: Amazon BS4 Scraper",
-                    platform_reported_total=len(extracted_html),
-                )
-        except Exception:
-            pass
+        # Standalone Direct HTML Scraping Fallback
+        extracted_html = self._scrape_direct_html(clean_id, domain=domain, max_comments=max_comments)
+        if extracted_html:
+            return PostInput(
+                post_id=clean_id,
+                post_url=canonical_url,
+                platform="amazon",
+                comments=extracted_html,
+                unbounded_fetch=(max_comments is None),
+                pages_fetched=max(1, len(extracted_html) // 10),
+                is_demo=False,
+                data_source="Live Web Scrape (Zero API Key - Amazon BS4 Scraper)",
+                data_source_badge="LIVE: Amazon BS4 Scraper",
+                platform_reported_total=len(extracted_html),
+            )
 
         # 3. Apify Amazon Scraper Fallback (if APIFY_API_TOKEN is present)
         if self.apify_token:
@@ -1491,7 +1337,7 @@ class AmazonExtractor:
             except Exception:
                 pass
 
-        # 4. Scraper API (Rainforest / RapidAPI) if configured
+        # 4. Scraper API (Rainforest / Generic) if configured
         if self.api_key:
             extracted_api: List[CommentInput] = []
             page = 1
@@ -1557,44 +1403,261 @@ class AmazonExtractor:
                 )
 
         # 5. Live extraction blocked by Amazon anti-bot CAPTCHA
-        if fallback_on_blocked:
-            sample_candidates = [
-                Path("sample_data/amazon_product_reviews.json"),
-                Path("sentiment_module/sample_data/amazon_product_reviews.json"),
-                Path(__file__).resolve().parent.parent / "sample_data" / "amazon_product_reviews.json",
-            ]
-            sample_file = next((p for p in sample_candidates if p.exists()), None)
-            if not sample_file:
-                sample_file = Path("sample_data/amazon_product_reviews.json")
-                generate_realistic_amazon_dataset(sample_file)
-
-            with open(sample_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            raw_list = data["comments"]
-            if max_comments is not None:
-                raw_list = raw_list[:max_comments]
-
-            comments = [CommentInput(**c) for c in raw_list]
-            return PostInput(
-                post_id=clean_id,
-                post_url=canonical_url,
-                platform="amazon",
-                comments=comments,
-                unbounded_fetch=(max_comments is None),
-                pages_fetched=1,
-                is_demo=False,
-                data_source="Fallback Benchmark Dataset (Amazon Direct Scrape Blocked by CAPTCHA)",
-                data_source_badge="BENCHMARK PRESET (CAPTCHA DETECTED)",
-                platform_reported_total=len(comments),
-                warning_message="⚠️ Platform Anti-Bot CAPTCHA detected on direct server request — Showing Benchmark Dataset (Use the Sentinelytics Chrome Extension on the open tab to push 100% live browser comments)",
-            )
-
         raise ValueError(
             f"Amazon live scraping blocked by platform anti-bot CAPTCHA for ASIN '{clean_id}'. "
             "To analyze real customer reviews directly from your active browser session, "
             "use the Sentinelytics Browser Extension or provide a Scraper API / Apify token in Settings."
         )
+
+    def _scrape_direct_html(
+        self,
+        asin: str,
+        domain: str = "amazon.in",
+        max_comments: Optional[int] = None,
+    ) -> List[CommentInput]:
+        """Direct keyless HTML review scraper for /dp/{asin} and /product-reviews/{asin}."""
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+        }
+        extracted_html: List[CommentInput] = []
+        seen_texts: Set[str] = set()
+
+        try:
+            with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+                # 1. Scrape /dp/{asin} for featured and top reviews
+                dp_url = f"https://www.{domain}/dp/{asin}"
+                resp_dp = client.get(dp_url, headers=headers)
+                if resp_dp.status_code == 200 and "Type the characters you see in this image" not in resp_dp.text:
+                    soup_dp = BeautifulSoup(resp_dp.text, "html.parser")
+                    dp_blocks = soup_dp.select('div[data-hook="review"], div[data-hook="cmps-review-card"], #cm-cr-dp-review-list [data-hook="review"], div[id^="customer_review-"]')
+                    for idx, block in enumerate(dp_blocks):
+                        body_elem = (
+                            block.select_one('[data-hook="reviewText"]') or
+                            block.select_one('[data-hook="review-body"]') or
+                            block.select_one('[data-hook="reviewTextContainer"]') or
+                            block.select_one('.review-text')
+                        )
+                        if not body_elem:
+                            continue
+                        body_text = body_elem.get_text(separator=" ", strip=True)
+                        for boilerplate in [
+                            "Brief content visible, double tap to read full content.",
+                            "Full content visible, double tap to read brief content.",
+                            "Read more",
+                            "Read less",
+                        ]:
+                            body_text = body_text.replace(boilerplate, "").strip()
+
+                        if not body_text:
+                            continue
+
+                        title_elem = (
+                            block.select_one('[data-hook="reviewTitle"]') or
+                            block.select_one('[data-hook="review-title"]') or
+                            block.select_one('a[data-hook="review-title"] span') or
+                            block.select_one('h5[data-hook="reviewTitle"]')
+                        )
+                        title_text = title_elem.get_text(strip=True) if title_elem else ""
+                        full_text = f"{title_text} — {body_text}" if title_text and not body_text.startswith(title_text) else body_text
+
+                        norm_k = re.sub(r'[^a-zA-Z0-9]', '', full_text).lower()
+                        if not norm_k or norm_k in seen_texts:
+                            continue
+                        seen_texts.add(norm_k)
+
+                        star_elem = block.select_one('i[data-hook="review-star-rating"] span, i[data-hook="cmps-review-star-rating"] span, span.a-icon-alt')
+                        stars = 5
+                        if star_elem:
+                            try:
+                                stars = int(float(star_elem.get_text().split()[0]))
+                            except Exception:
+                                stars = 5
+
+                        author_elem = block.select_one("span.a-profile-name, .a-profile-name")
+                        author_name = author_elem.get_text(strip=True) if author_elem else f"buyer_dp_{idx}"
+                        verified = bool(block.select_one('span[data-hook="avp-badge"]') or "Verified Purchase" in block.get_text())
+
+                        date_elem = block.select_one('[data-hook="review-date"]')
+                        ts_str = "2026-11-03T00:00:00Z"
+                        if date_elem:
+                            try:
+                                raw_d = date_elem.get_text(strip=True)
+                                if " on " in raw_d:
+                                    raw_d = raw_d.split(" on ", 1)[1]
+                                ts_str = CommentPreprocessor.normalize_timestamp(raw_d)
+                            except Exception:
+                                pass
+
+                        extracted_html.append(
+                            CommentInput(
+                                comment_id=f"amz_dp_{asin}_{idx}",
+                                raw_text=full_text,
+                                timestamp=ts_str,
+                                like_count=0,
+                                anonymized_author_id=get_author_hash(author_name),
+                                author=author_name,
+                                star_rating=stars,
+                                verified_purchase=verified,
+                                platform="amazon",
+                            )
+                        )
+
+                # 2. Scrape /product-reviews/{asin}
+                page = 1
+                max_pages = max(1, (max_comments + 9) // 10) if max_comments else 3
+                while page <= max_pages:
+                    target_url = f"https://www.{domain}/product-reviews/{asin}?pageNumber={page}"
+                    resp = client.get(target_url, headers=headers)
+                    if "api-services-support@amazon.com" in resp.text or "Type the characters you see in this image" in resp.text:
+                        break
+
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    review_blocks = soup.select('div[data-hook="review"], div[data-hook="cmps-review-card"], div[id^="customer_review-"]')
+                    if not review_blocks:
+                        break
+
+                    for idx, block in enumerate(review_blocks):
+                        body_elem = (
+                            block.select_one('[data-hook="reviewText"]') or
+                            block.select_one('[data-hook="review-body"]') or
+                            block.select_one('[data-hook="reviewTextContainer"]') or
+                            block.select_one('.review-text')
+                        )
+                        if not body_elem:
+                            continue
+                        body_text = body_elem.get_text(separator=" ", strip=True)
+                        for boilerplate in [
+                            "Brief content visible, double tap to read full content.",
+                            "Full content visible, double tap to read brief content.",
+                            "Read more",
+                            "Read less",
+                        ]:
+                            body_text = body_text.replace(boilerplate, "").strip()
+
+                        if not body_text:
+                            continue
+
+                        title_elem = (
+                            block.select_one('[data-hook="reviewTitle"]') or
+                            block.select_one('[data-hook="review-title"]') or
+                            block.select_one('a[data-hook="review-title"] span') or
+                            block.select_one('h5[data-hook="reviewTitle"]')
+                        )
+                        title_text = title_elem.get_text(strip=True) if title_elem else ""
+                        full_text = f"{title_text} — {body_text}" if title_text and not body_text.startswith(title_text) else body_text
+
+                        norm_k = re.sub(r'[^a-zA-Z0-9]', '', full_text).lower()
+                        if not norm_k or norm_k in seen_texts:
+                            continue
+                        seen_texts.add(norm_k)
+
+                        star_elem = block.select_one('i[data-hook="review-star-rating"] span') or block.select_one('i[data-hook="cmps-review-star-rating"] span')
+                        stars = 5
+                        if star_elem:
+                            try:
+                                stars = int(float(star_elem.get_text().split()[0]))
+                            except Exception:
+                                stars = 5
+
+                        author_elem = block.select_one("span.a-profile-name, .a-profile-name")
+                        author_name = author_elem.get_text(strip=True) if author_elem else f"buyer_{page}_{idx}"
+                        verified = bool(block.select_one('span[data-hook="avp-badge"]') or "Verified Purchase" in block.get_text())
+
+                        date_elem = block.select_one('[data-hook="review-date"]')
+                        ts_str = "2026-11-03T00:00:00Z"
+                        if date_elem:
+                            try:
+                                raw_d = date_elem.get_text(strip=True)
+                                if " on " in raw_d:
+                                    raw_d = raw_d.split(" on ", 1)[1]
+                                ts_str = CommentPreprocessor.normalize_timestamp(raw_d)
+                            except Exception:
+                                pass
+
+                        extracted_html.append(
+                            CommentInput(
+                                comment_id=f"amz_live_{asin}_{page}_{idx}",
+                                raw_text=full_text,
+                                timestamp=ts_str,
+                                like_count=0,
+                                anonymized_author_id=get_author_hash(author_name),
+                                author=author_name,
+                                star_rating=stars,
+                                verified_purchase=verified,
+                                platform="amazon",
+                            )
+                        )
+                        if max_comments and len(extracted_html) >= max_comments:
+                            break
+                    if max_comments and len(extracted_html) >= max_comments:
+                        break
+                    page += 1
+        except Exception:
+            pass
+
+        return extracted_html
+
+    def _fetch_rapidapi(
+        self,
+        asin: str,
+        api_key: Optional[str] = None,
+        canonical_url: str = "",
+        max_comments: Optional[int] = None,
+        country_code: Optional[str] = None,
+    ) -> List[CommentInput]:
+        """Hybrid RapidAPI + Direct HTML Amazon Review Extractor."""
+        key = api_key or self.rapidapi_key or get_rapidapi_key()
+        limit = max_comments if max_comments is not None else 200
+        extracted: List[CommentInput] = []
+        seen_texts: Set[str] = set()
+
+        domain = "amazon.com" if ".com" in canonical_url else "amazon.in"
+        if not country_code:
+            country_code = "US" if ".com" in canonical_url else "IN"
+
+        # 1. Primary endpoint: amazon-online-data-api.p.rapidapi.com/product (firstocenka)
+        if key:
+            headers = {
+                "x-rapidapi-key": key,
+                "x-rapidapi-host": "amazon-online-data-api.p.rapidapi.com",
+            }
+            try:
+                with httpx.Client(timeout=15.0) as client:
+                    url = "https://amazon-online-data-api.p.rapidapi.com/product"
+                    params = {"asins": asin, "geo": country_code, "country_code": country_code}
+                    res = client.get(url, headers=headers, params=params)
+                    if res.status_code == 200:
+                        rapid_comments = extract_comments_from_rapidapi_json(res.json(), "amazon")
+                        for rc in rapid_comments:
+                            norm = re.sub(r'[^a-zA-Z0-9]', '', rc.raw_text).lower()
+                            if norm not in seen_texts:
+                                seen_texts.add(norm)
+                                extracted.append(rc)
+            except Exception:
+                pass
+
+        # 2. Hybrid Boost: Simultaneously scrape direct HTML (/dp/ & /product-reviews/)
+        try:
+            direct_html_comments = self._scrape_direct_html(asin, domain=domain, max_comments=limit)
+            for dc in direct_html_comments:
+                norm = re.sub(r'[^a-zA-Z0-9]', '', dc.raw_text).lower()
+                if norm not in seen_texts:
+                    seen_texts.add(norm)
+                    extracted.append(dc)
+        except Exception:
+            pass
+
+        return extracted[:limit]
 
 
 class FlipkartExtractor:
@@ -1615,6 +1678,286 @@ class FlipkartExtractor:
         self.scraper_url = scraper_url
         self.apify_token = apify_token or os.environ.get("APIFY_API_TOKEN")
 
+    @staticmethod
+    def parse_flipkart_review_cards_from_soup(soup, clean_id="flp_item", page_num=1) -> List[CommentInput]:
+        """Parse review cards from BeautifulSoup doc using 2026 Flipkart text-line algorithm.
+        Handles both 'Verified Purchase' (2026) and 'Certified Buyer' (legacy) anchor phrases.
+        NO <script> / window.__INITIAL_STATE__ regex parsing — that produces JSON fragment junk!
+        """
+        ANCHOR_RE = re.compile(r'(Verified\s+Purchase|Certified\s+Buyer)', re.IGNORECASE)
+        NOISE_RE = re.compile(r'^(Review for\s*:|Helpful for\b|READ MORE|Read more|Report Abuse|Permalink|Most Helpful|Latest|Positive|Negative|Overall|User reviews sorted by|Images uploaded|All Reviews|Photos)', re.IGNORECASE)
+        JSON_JUNK_RE = re.compile(r'[{}"\\]|viewAllImageUrl|tracking:|reviewList|__INITIAL_STATE__|"text":|"title":')
+
+        reviews = []
+        page_title = (soup.title.string if soup.title else "").strip().lower()
+
+        # Find leaf elements containing the anchor phrase
+        leaf_anchors = []
+        for el in soup.find_all(['span', 'p', 'div']):
+            txt = el.get_text()
+            if ANCHOR_RE.search(txt):
+                has_child_match = any(
+                    ANCHOR_RE.search(child.get_text())
+                    for child in el.find_all(['span', 'p', 'div'], recursive=False)
+                )
+                if not has_child_match:
+                    leaf_anchors.append(el)
+
+        candidate_cards = []
+        for leaf in leaf_anchors:
+            card = leaf
+            while card.parent and card.parent.name not in (None, '[document]', 'body', 'html'):
+                parent_text = card.parent.get_text()
+                if len(ANCHOR_RE.findall(parent_text)) > 1:
+                    break
+                card = card.parent
+            candidate_cards.append(card)
+
+        # Also add classic Flipkart class review cards (NEVER include div.cPHDOP which is page column wrapper)
+        candidate_cards.extend(soup.select("div.EPCmJX, div._27M-vq, div.RcXBOT, div._2wzgFH, div[data-review-id]"))
+
+        processed_cards = set()
+
+        AUTHOR_DATE_RE = re.compile(
+            r'(?:(?<=[.!?])\s+|\s+)([A-Z][A-Za-z.]*(?:\s+[A-Z][A-Za-z.]*)*)\s*(?:[Hh]elpful)?\s*[·•]\s*((?i:\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago|today|yesterday|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*,?\s*\d{4}))(?i:\s*Helpful.*)?$'
+        )
+        HELPFUL_NOISE_RE = re.compile(r'\s*(?:Helpful\s*(?:for\s*\d+)?|\bHelpful\b|\bREAD MORE\b|\bRead more\b|\.\.\.\s*more)\s*$', re.IGNORECASE)
+        LEADING_BULLET_RE = re.compile(r'^[•·★*!\-—\s:]+')
+
+        seen_review_signatures: Set[str] = set()
+
+        for card in candidate_cards:
+            card_id = id(card)
+            if card_id in processed_cards:
+                continue
+            processed_cards.add(card_id)
+
+            # Direct element selectors on modern Flipkart card first
+            direct_star = None
+            star_el = card.select_one("div.XQDdHH, div._3LWZlK, div.XWuL2k, div._5OesEi, span.Y1HWO0, div[class*='rating-title'], div.rating-title-row, [class*='star-rating'], [class*='StarRating']")
+            if star_el:
+                parent_footer = star_el.find_parent(class_=re.compile(r'helpful|dislike|footer', re.I))
+                if not parent_footer:
+                    sm = re.search(r'([1-5](?:\.\d)?)', star_el.get_text())
+                    if sm:
+                        direct_star = round(float(sm.group(1)))
+
+            direct_title = ""
+            title_el = card.select_one("p.z9E0IG, p._2-N8zT, div.rating-title-row, [class*='title']")
+            if title_el:
+                dt = re.sub(r'^[1-5](\.\d)?\s*[•·★*]?\s*', '', title_el.get_text()).strip()
+                dt = LEADING_BULLET_RE.sub('', dt).strip()
+                if 1 < len(dt) < 80 and not re.match(r'^[•·★*!\-—\s:]+$', dt):
+                    direct_title = dt
+
+            direct_body = ""
+            body_el = card.select_one("div.ZmyHeo, div.t-ZTKy, div.review-body-text, [class*='reviewText'], [class*='review-body']")
+            if body_el:
+                direct_body = body_el.get_text(separator=' ', strip=True)
+                direct_body = re.sub(r'\s*READ MORE\s*$', '', direct_body, flags=re.IGNORECASE).strip()
+
+            direct_author = ""
+            author_el = card.select_one("p._2NsDsF, p._2sc7ZR, div.reviewer-name-loc, [class*='reviewer']")
+            if author_el:
+                direct_author = author_el.get_text(strip=True)
+                direct_author = re.sub(r'[•·,]\s*Verified.*$', '', direct_author, flags=re.I).strip()
+
+            direct_verified = False
+            direct_time = "2026-11-10T00:00:00Z"
+            verified_el = card.select_one("p.MztJPv, p._2mcPpO, div.verified-badge-row, [class*='certified'], [class*='verified']")
+            if verified_el:
+                vt = verified_el.get_text()
+                direct_verified = bool(re.search(r'Verified|Certified', vt, re.IGNORECASE))
+                dm = re.search(r'[•·,]\s*(.+)$', vt)
+                if dm:
+                    direct_time = dm.group(1).strip()
+
+            # Clean direct_body and extract author/date suffix if stuck in body
+            if direct_body:
+                adm = AUTHOR_DATE_RE.search(direct_body)
+                if adm:
+                    if not direct_author or direct_author.startswith("flp_user"):
+                        direct_author = adm.group(1).strip()
+                    if direct_time.startswith("2026-11-10"):
+                        direct_time = adm.group(2).strip()
+                    direct_body = direct_body[:adm.start()].strip()
+                direct_body = HELPFUL_NOISE_RE.sub('', direct_body).strip()
+                direct_body = LEADING_BULLET_RE.sub('', direct_body).strip()
+
+            # If direct selectors extracted body/title, use them
+            if direct_body or direct_title:
+                effective_star = direct_star if direct_star is not None else 5
+                if direct_title and direct_body:
+                    clean_b = re.sub(r'^' + re.escape(direct_title) + r'\s*[—\-·•!:]*\s*', '', direct_body, flags=re.IGNORECASE).strip()
+                    full_text = f"{direct_title} — {clean_b}" if clean_b else (direct_body or direct_title)
+                else:
+                    full_text = direct_body or direct_title
+                full_text = LEADING_BULLET_RE.sub('', full_text).strip()
+                full_text = HELPFUL_NOISE_RE.sub('', full_text).strip()
+
+                author_name = direct_author or f"flp_user_{page_num}_{len(reviews)}"
+                canon_key = re.sub(r'[^a-zA-Z0-9]', '', full_text).lower()
+                if canon_key in seen_review_signatures:
+                    continue
+                seen_review_signatures.add(canon_key)
+
+                rev_hash = hashlib.md5(f"{full_text}_{author_name}".encode('utf-8')).hexdigest()[:12]
+                reviews.append(
+                    CommentInput(
+                        comment_id=f"flp_{clean_id}_{rev_hash}",
+                        raw_text=full_text,
+                        timestamp=direct_time,
+                        like_count=0,
+                        anonymized_author_id=get_author_hash(author_name),
+                        author=author_name,
+                        star_rating=effective_star,
+                        verified_purchase=direct_verified,
+                        platform="flipkart",
+                    )
+                )
+                continue
+
+            # Fallback to text line parser
+            raw_lines = card.get_text("\n").split("\n")
+            lines = [l.strip() for l in raw_lines if l.strip()]
+            if len(lines) < 2:
+                continue
+
+            # Reject JSON fragment leaks from <script> tags
+            if any(JSON_JUNK_RE.search(l) for l in lines):
+                continue
+            # Reject if any line IS the page title
+            if page_title and any(l.lower() == page_title for l in lines):
+                continue
+
+            star_rating = direct_star
+            review_title = direct_title
+            body_lines = []
+            author_name = direct_author or f"flp_user_{page_num}_{len(reviews)}"
+            timestamp_str = direct_time
+            is_verified = direct_verified
+            verified_idx = -1
+
+            for i, line in enumerate(lines):
+                # Star rating: ONLY from line 0 or 1 at the top of the card! NEVER from footer lines!
+                if star_rating is None and i <= 1:
+                    rm = re.match(r'^([1-5](?:\.\d)?)\s*[•·★*]?\s*(.*)$', line)
+                    if rm and len(line) < 80:
+                        star_rating = round(float(rm.group(1)))
+                        possible_title = LEADING_BULLET_RE.sub('', rm.group(2)).strip()
+                        if 1 < len(possible_title) < 60 and not re.match(r'^[•·★*!\-—\s:]+$', possible_title):
+                            review_title = possible_title
+                        continue
+
+                # Review title on line after star rating (only within top lines)
+                if not review_title and star_rating is not None and len(body_lines) == 0 and i <= 2 and len(line) < 70 and not NOISE_RE.match(line) and not re.match(r'^(Verified\s+Purchase|Certified\s+Buyer)', line, re.IGNORECASE):
+                    cleaned_t = LEADING_BULLET_RE.sub('', line).strip()
+                    if len(cleaned_t) > 1 and not re.match(r'^[•·★*!\-—\s:]+$', cleaned_t):
+                        review_title = cleaned_t
+                        continue
+
+                # Verified/Certified line
+                if re.match(r'^(Verified\s+Purchase|Certified\s+Buyer)', line, re.IGNORECASE):
+                    is_verified = True
+                    verified_idx = i
+                    date_m = re.search(r'[•·,]\s*(.+)$', line)
+                    if date_m:
+                        timestamp_str = date_m.group(1).strip()
+                    continue
+
+                # Noise lines / lone numbers (footer thumbs up/down counters)
+                if NOISE_RE.match(line):
+                    continue
+                if re.match(r'^\d+$', line):
+                    continue
+
+                # Check if line contains author · relative date pattern
+                adm = AUTHOR_DATE_RE.search(line)
+                if adm:
+                    if not direct_author or direct_author.startswith("flp_user"):
+                        author_name = adm.group(1).strip()
+                    timestamp_str = adm.group(2).strip()
+                    line_clean = line[:adm.start()].strip()
+                    if line_clean:
+                        body_lines.append((line_clean, i))
+                    continue
+
+                body_lines.append((line, i))
+
+            # Identify author: short line near end, before verified, looks like a name (only if not already found)
+            if not author_name or author_name.startswith("flp_user"):
+                author_found_idx = -1
+                for bi in range(len(body_lines) - 1, -1, -1):
+                    bl_text, bl_idx = body_lines[bi]
+                    if (
+                        len(bl_text) < 60
+                        and not bl_text.endswith(".")
+                        and not bl_text.endswith("!")
+                        and not bl_text.endswith("?")
+                        and not re.match(r'^(READ MORE|Report Abuse|Helpful)', bl_text, re.IGNORECASE)
+                    ):
+                        if verified_idx > 0 and bl_idx < verified_idx:
+                            author_name = bl_text
+                            author_found_idx = bi
+                            break
+                        if verified_idx == -1 and bi == len(body_lines) - 1:
+                            author_name = bl_text
+                            author_found_idx = bi
+                            break
+
+                if author_found_idx >= 0:
+                    body_lines.pop(author_found_idx)
+
+            body_text = " ".join(bl[0] for bl in body_lines)
+            body_text = re.sub(r'\s*READ MORE\s*$', '', body_text, flags=re.IGNORECASE).strip()
+            # Clean author date suffix if still in body_text
+            adm = AUTHOR_DATE_RE.search(body_text)
+            if adm:
+                if not author_name or author_name.startswith("flp_user"):
+                    author_name = adm.group(1).strip()
+                timestamp_str = adm.group(2).strip()
+                body_text = body_text[:adm.start()].strip()
+
+            body_text = HELPFUL_NOISE_RE.sub('', body_text).strip()
+            body_text = LEADING_BULLET_RE.sub('', body_text).strip()
+
+            if review_title and body_text:
+                clean_b = re.sub(r'^' + re.escape(review_title) + r'\s*[—\-·•!:]*\s*', '', body_text, flags=re.IGNORECASE).strip()
+                raw_text = f"{review_title} — {clean_b}" if clean_b else (body_text or review_title)
+            elif body_text:
+                raw_text = body_text
+            elif review_title:
+                raw_text = review_title
+            else:
+                continue
+
+            raw_text = LEADING_BULLET_RE.sub('', raw_text).strip()
+            raw_text = HELPFUL_NOISE_RE.sub('', raw_text).strip()
+
+            if len(raw_text) < 3:
+                continue
+
+            canon_key = re.sub(r'[^a-zA-Z0-9]', '', raw_text).lower()
+            if canon_key in seen_review_signatures:
+                continue
+            seen_review_signatures.add(canon_key)
+
+            reviews.append(
+                CommentInput(
+                    comment_id=f"flp_live_{clean_id}_{page_num}_{len(reviews)}",
+                    raw_text=raw_text,
+                    timestamp=timestamp_str,
+                    like_count=0,
+                    anonymized_author_id=get_author_hash(author_name),
+                    author=author_name,
+                    star_rating=star_rating if star_rating else 5,
+                    verified_purchase=is_verified,
+                    product_variant=None,
+                )
+            )
+
+        return reviews
+
     def extract(
         self,
         post_id: str = "flp_electronics_sale",
@@ -1625,7 +1968,7 @@ class FlipkartExtractor:
         clean_id, _, canonical_url = parse_input_url_or_id(post_id, default_platform="flipkart")
 
         # 1. Offline Demo Preset explicitly requested
-        if is_demo or clean_id in ("flp_electronics_sale", "MOBGH73XHZ6QG9FZ"):
+        if is_demo or clean_id == "flp_electronics_sale":
             sample_candidates = [
                 Path("sample_data/flipkart_product_reviews.json"),
                 Path("sentiment_module/sample_data/flipkart_product_reviews.json"),
@@ -1678,63 +2021,12 @@ class FlipkartExtractor:
 
         try:
             with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-                # First attempt: Scrape product page /p/ for embedded window.__INITIAL_STATE__ or review containers
-                if "/p/" in canonical_url or not "/product-reviews/" in canonical_url:
+                # First attempt: Scrape product page /p/ for DOM review cards (NO script/JSON regex!)
+                if "/p/" in canonical_url or "/product-reviews/" not in canonical_url:
                     p_resp = client.get(canonical_url, headers=headers)
                     if p_resp.status_code == 200:
                         p_soup = BeautifulSoup(p_resp.text, "html.parser")
-                        # Check window.__INITIAL_STATE__ script
-                        for sc in p_soup.find_all("script"):
-                            sc_text = sc.string or ""
-                            if "__INITIAL_STATE__" in sc_text:
-                                try:
-                                    json_m = re.search(r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\});", sc_text, re.DOTALL)
-                                    if json_m:
-                                        init_state = json.loads(json_m.group(1))
-                                        # Recursively search for review texts
-                                        p_data = json.dumps(init_state)
-                                        rev_matches = re.findall(r'"text":\s*"([^"]{15,500})"', p_data)
-                                        for idx, r_txt in enumerate(rev_matches[:30]):
-                                            extracted_flp.append(
-                                                CommentInput(
-                                                    comment_id=f"flp_init_{clean_id}_{idx}",
-                                                    raw_text=r_txt,
-                                                    timestamp="2026-11-03T00:00:00Z",
-                                                    like_count=0,
-                                                    anonymized_author_id=get_author_hash(f"flp_buyer_{idx}"),
-                                                    star_rating=5,
-                                                    verified_purchase=True,
-                                                    product_variant=None,
-                                                )
-                                            )
-                                except Exception:
-                                    pass
-                        # Also check DOM review containers on product page
-                        dom_blocks = p_soup.select("div.col.EPCmJX, div._27M-vq, div.cPHDOP, div.RcXBOT, div._2wzgFH")
-                        for idx, c in enumerate(dom_blocks):
-                            txt_div = c.select_one("div.ZmyHeo, div.t-ZTKy, div._1135xD, div.row")
-                            if txt_div:
-                                b_text = re.sub(r"READ MORE$", "", txt_div.get_text(separator=" ", strip=True)).strip()
-                                if b_text and not any(e.raw_text == b_text for e in extracted_flp):
-                                    rating_elem = c.select_one("div.XQDdHH, div._3LWZlK, div._1BLPMq")
-                                    rating = 5
-                                    if rating_elem:
-                                        try:
-                                            rating = int(float(rating_elem.get_text(strip=True).split()[0]))
-                                        except Exception:
-                                            rating = 5
-                                    extracted_flp.append(
-                                        CommentInput(
-                                            comment_id=f"flp_p_{clean_id}_{idx}",
-                                            raw_text=b_text,
-                                            timestamp="2026-11-03T00:00:00Z",
-                                            like_count=0,
-                                            anonymized_author_id=get_author_hash(f"buyer_p_{idx}"),
-                                            star_rating=rating,
-                                            verified_purchase=True,
-                                            product_variant=None,
-                                        )
-                                    )
+                        extracted_flp.extend(self.parse_flipkart_review_cards_from_soup(p_soup, clean_id, 0))
 
                 # Second attempt: Paginate /product-reviews/
                 while page <= max_pages:
@@ -1745,48 +2037,19 @@ class FlipkartExtractor:
                         break
 
                     soup = BeautifulSoup(resp.text, "html.parser")
-                    containers = soup.select("div.col.EPCmJX, div._27M-vq, div.cPHDOP, div.RcXBOT, div._2wzgFH")
-                    if not containers:
+                    new_reviews = self.parse_flipkart_review_cards_from_soup(soup, clean_id, page)
+                    if not new_reviews:
                         break
 
-                    for idx, c in enumerate(containers):
-                        txt_div = c.select_one("div.ZmyHeo, div.t-ZTKy, div._1135xD, div.row")
-                        if not txt_div:
-                            continue
-                        body_txt = txt_div.get_text(separator=" ", strip=True)
-                        body_txt = re.sub(r"READ MORE$", "", body_txt).strip()
-
-                        title_div = c.select_one("p.z9E0IG, p._2-N8zT")
-                        title_txt = title_div.get_text(strip=True) if title_div else ""
-                        full_txt = f"{title_txt}. {body_txt}" if title_txt and not body_txt.startswith(title_txt) else body_txt
-
-                        rating_elem = c.select_one("div.XQDdHH, div._3LWZlK, div._1BLPMq")
-                        rating = 5
-                        if rating_elem:
-                            try:
-                                rating = int(float(rating_elem.get_text(strip=True).split()[0]))
-                            except Exception:
-                                rating = 5
-
-                        author_elem = c.select_one("p._2NsDsF, p._2sc7ZR")
-                        author_name = author_elem.get_text(strip=True) if author_elem else f"flp_user_{page}_{idx}"
-                        certified_elem = c.select_one("p.MztJPv, p._2mcMHG, span._2mcMHG")
-                        is_cert = certified_elem is not None or "Certified Buyer" in c.get_text()
-
-                        extracted_flp.append(
-                            CommentInput(
-                                comment_id=f"flp_live_{clean_id}_{page}_{idx}",
-                                raw_text=full_txt,
-                                timestamp="2026-11-03T00:00:00Z",
-                                like_count=0,
-                                anonymized_author_id=get_author_hash(author_name),
-                                star_rating=rating,
-                                verified_purchase=is_cert,
-                                product_variant=None,
-                            )
-                        )
+                    for rev in new_reviews:
+                        if not any(e.raw_text == rev.raw_text for e in extracted_flp):
+                            extracted_flp.append(rev)
                         if max_comments and len(extracted_flp) >= max_comments:
                             break
+
+                    if max_comments and len(extracted_flp) >= max_comments:
+                        break
+                    page += 1
 
                     if max_comments and len(extracted_flp) >= max_comments:
                         break
@@ -1861,39 +2124,6 @@ class FlipkartExtractor:
                 pass
 
         # 4. Live extraction blocked by Flipkart challenge/login wall
-        if fallback_on_blocked:
-            sample_candidates = [
-                Path("sample_data/flipkart_product_reviews.json"),
-                Path("sentiment_module/sample_data/flipkart_product_reviews.json"),
-                Path(__file__).resolve().parent.parent / "sample_data" / "flipkart_product_reviews.json",
-            ]
-            sample_file = next((p for p in sample_candidates if p.exists()), None)
-            if not sample_file:
-                sample_file = Path("sample_data/flipkart_product_reviews.json")
-                generate_realistic_flipkart_dataset(sample_file)
-
-            with open(sample_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            raw_list = data["comments"]
-            if max_comments is not None:
-                raw_list = raw_list[:max_comments]
-
-            comments = [CommentInput(**c) for c in raw_list]
-            return PostInput(
-                post_id=clean_id,
-                post_url=canonical_url,
-                platform="flipkart",
-                comments=comments,
-                unbounded_fetch=(max_comments is None),
-                pages_fetched=1,
-                is_demo=False,
-                data_source="Fallback Benchmark Dataset (Flipkart Direct Scrape Blocked by Anti-Bot)",
-                data_source_badge="BENCHMARK PRESET (CAPTCHA DETECTED)",
-                platform_reported_total=len(comments),
-                warning_message="⚠️ Platform Anti-Bot CAPTCHA detected on direct server request — Showing Benchmark Dataset (Use the Sentinelytics Chrome Extension on the open tab to push 100% live browser comments)",
-            )
-
         raise ValueError(
             f"Flipkart live scraping blocked by anti-bot challenge for item '{clean_id}'. "
             "To analyze real customer reviews directly from your active browser session, "
@@ -1917,11 +2147,10 @@ class UniversalEcommerceExtractor:
         post_id: str,
         max_comments: Optional[int] = None,
         is_demo: bool = False,
-        fallback_on_blocked: bool = True,
+        fallback_on_blocked: bool = False,
     ) -> PostInput:
         clean_id, detected_platform, canonical_url = parse_input_url_or_id(post_id, default_platform=self.platform)
         platform = self.platform or detected_platform
-        product_title, category = extract_slug_and_category(canonical_url or clean_id, platform)
 
         extracted_reviews: List[CommentInput] = []
 
@@ -1983,29 +2212,11 @@ class UniversalEcommerceExtractor:
                 platform_reported_total=len(extracted_reviews),
             )
 
-        # Attempt 2: Context-Aware Smart Fallback Generator
-        if fallback_on_blocked or is_demo:
-            comments = generate_context_aware_ecommerce_dataset(
-                title=product_title,
-                category=category,
-                platform=platform,
-                count=max_comments if max_comments else 140,
-            )
-            return PostInput(
-                post_id=clean_id,
-                post_url=canonical_url,
-                platform=platform,
-                comments=comments,
-                unbounded_fetch=(max_comments is None),
-                pages_fetched=2,
-                is_demo=is_demo,
-                data_source=f"Context-Aware Benchmark for '{product_title}' ({platform.capitalize()})",
-                data_source_badge=f"BENCHMARK: {platform.capitalize()} Context-Aware",
-                platform_reported_total=len(comments),
-                warning_message=f"Platform anti-bot challenge encountered on {platform.capitalize()} direct server request. Showing high-precision benchmark dataset tailored specifically for '{product_title}'. Use the Sentinelytics Chrome Extension on your active browser tab for direct live DOM capture.",
-            )
-
-        raise ValueError(f"Could not extract reviews for {platform.capitalize()} item '{clean_id}'.")
+        raise ValueError(
+            f"Could not extract live reviews for {platform.capitalize()} item '{clean_id}'. "
+            "Anti-bot or login wall encountered. Please use the Sentinelytics Chrome Extension "
+            "on your active browser tab to capture live reviews directly."
+        )
 
 
 class InstagramExtractor:
@@ -2028,6 +2239,7 @@ class InstagramExtractor:
         self.access_token = access_token or os.environ.get("INSTAGRAM_ACCESS_TOKEN")
         self.apify_token = apify_token or os.environ.get("APIFY_API_TOKEN")
         self.rapidapi_key = rapidapi_key or os.environ.get("RAPIDAPI_KEY")
+        self.last_quota_exceeded = False
 
     def extract(
         self,
@@ -2142,21 +2354,6 @@ class InstagramExtractor:
             pass
 
         # Tier 4: Live extraction blocked by Instagram login wall (Zero fake comments)
-        if fallback_on_blocked:
-            return PostInput(
-                post_id=clean_id,
-                post_url=canonical_url,
-                platform="instagram",
-                comments=[],
-                unbounded_fetch=(max_comments is None),
-                pages_fetched=1,
-                is_demo=False,
-                data_source="Instagram Direct Scraper (Blocked by Login Wall)",
-                data_source_badge="LOGIN REQUIRED (USE BROWSER EXTENSION)",
-                platform_reported_total=0,
-                warning_message="Instagram requires browser login — Click the purple '⚡ Analyze with Sentinelytics' button directly on your open Instagram tab to push 100% real comments.",
-            )
-
         raise ValueError(
             f"Instagram live scraping blocked by login wall for '{clean_id}'. "
             "To analyze real Instagram comments without blocks, click '🧩 Browser Extension & Live Collector' "
@@ -2262,36 +2459,102 @@ class InstagramExtractor:
             )
         return extracted
 
-    def _fetch_rapidapi(self, shortcode: str, api_key: str, max_comments: Optional[int] = None) -> List[CommentInput]:
-        url = "https://instagram-scraper-stable-api.p.rapidapi.com/ig/comments/"
-        headers = {
-            "x-rapidapi-key": api_key,
-            "x-rapidapi-host": "instagram-scraper-stable-api.p.rapidapi.com",
-        }
-        params = {"shortcode": shortcode}
+    def _fetch_rapidapi(self, shortcode: str, api_key: Optional[str] = None, max_comments: Optional[int] = None) -> List[CommentInput]:
+        key = api_key or self.rapidapi_key or get_rapidapi_key()
+        if not key:
+            return []
+
+        limit = max_comments if max_comments is not None else 500
         extracted: List[CommentInput] = []
+        seen_texts: Set[str] = set()
+        self.last_quota_exceeded = False
+
+        # Convert shortcode to numeric Instagram media ID required by this API
+        numeric_id = ""
+        try:
+            alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+            m_id = 0
+            for ch in shortcode:
+                m_id = (m_id * 64) + alpha.index(ch)
+            numeric_id = str(m_id)
+        except Exception:
+            numeric_id = shortcode
+
         with httpx.Client(timeout=15.0) as client:
-            resp = client.get(url, headers=headers, params=params)
-            if resp.status_code == 200:
-                body = resp.json()
-                items = body.get("data", {}).get("items", []) or body.get("comments", []) or []
-                for item in items:
-                    cid = str(item.get("id") or item.get("pk") or f"rapid_ig_{len(extracted)}")
-                    text = item.get("text") or item.get("comment_text") or ""
-                    if not text.strip():
-                        continue
-                    author = item.get("user", {}).get("username") or item.get("owner", {}).get("username") or "ig_user"
-                    ts = item.get("created_at") or "2026-11-03T00:00:00Z"
-                    likes = int(item.get("like_count") or item.get("likes_count") or 0)
-                    extracted.append(
-                        CommentInput(
-                            comment_id=cid,
-                            raw_text=text,
-                            timestamp=str(ts),
-                            like_count=likes,
-                            anonymized_author_id=get_author_hash(author),
-                        )
-                    )
-                    if max_comments and len(extracted) >= max_comments:
+            # Endpoint 1: instagram-scraper-stable-api (thetechguy32711)
+            try:
+                url1 = "https://instagram-scraper-stable-api.p.rapidapi.com/get_post_comments.php"
+                headers1 = {
+                    "x-rapidapi-key": key,
+                    "x-rapidapi-host": "instagram-scraper-stable-api.p.rapidapi.com",
+                }
+                cursor = None
+                for _ in range(5):
+                    params1 = {"post_id": numeric_id or shortcode, "media_code": shortcode}
+                    if cursor:
+                        params1["cursor"] = cursor
+                    r1 = client.get(url1, headers=headers1, params=params1)
+                    if r1.status_code == 429:
+                        self.last_quota_exceeded = True
                         break
-        return extracted
+                    elif r1.status_code == 200:
+                        body1 = r1.json()
+                        items = extract_comments_from_rapidapi_json(body1, "instagram")
+                        for it in items:
+                            norm = re.sub(r'[^a-zA-Z0-9]', '', it.raw_text).lower()
+                            if norm not in seen_texts:
+                                seen_texts.add(norm)
+                                extracted.append(it)
+                        if len(extracted) >= limit:
+                            break
+                        cursor = body1.get("data", {}).get("next_cursor") or body1.get("next_cursor") or body1.get("next_max_id")
+                        if not cursor:
+                            break
+                    else:
+                        break
+            except Exception:
+                pass
+
+            # Endpoint 2 Fallback: instagram-scraper-api2
+            if not extracted and not self.last_quota_exceeded:
+                try:
+                    url2 = "https://instagram-scraper-api2.p.rapidapi.com/v1/comments"
+                    headers2 = {
+                        "x-rapidapi-key": key,
+                        "x-rapidapi-host": "instagram-scraper-api2.p.rapidapi.com",
+                    }
+                    r2 = client.get(url2, headers=headers2, params={"code_or_id_or_url": shortcode})
+                    if r2.status_code == 429:
+                        self.last_quota_exceeded = True
+                    elif r2.status_code == 200:
+                        items = extract_comments_from_rapidapi_json(r2.json(), "instagram")
+                        for it in items:
+                            norm = re.sub(r'[^a-zA-Z0-9]', '', it.raw_text).lower()
+                            if norm not in seen_texts:
+                                seen_texts.add(norm)
+                                extracted.append(it)
+                except Exception:
+                    pass
+
+            # Endpoint 3 Fallback: instagram-bulk-scraper-latest
+            if not extracted and not self.last_quota_exceeded:
+                try:
+                    url3 = f"https://instagram-bulk-scraper-latest.p.rapidapi.com/webget_comments_by_shortcode/{shortcode}"
+                    headers3 = {
+                        "x-rapidapi-key": key,
+                        "x-rapidapi-host": "instagram-bulk-scraper-latest.p.rapidapi.com",
+                    }
+                    r3 = client.get(url3, headers=headers3)
+                    if r3.status_code == 429:
+                        self.last_quota_exceeded = True
+                    elif r3.status_code == 200:
+                        items = extract_comments_from_rapidapi_json(r3.json(), "instagram")
+                        for it in items:
+                            norm = re.sub(r'[^a-zA-Z0-9]', '', it.raw_text).lower()
+                            if norm not in seen_texts:
+                                seen_texts.add(norm)
+                                extracted.append(it)
+                except Exception:
+                    pass
+
+        return extracted[:limit]

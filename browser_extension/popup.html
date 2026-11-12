@@ -3,18 +3,36 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sentinelytics Collector & Instant Preview</title>
+  <title>Sentinelytics — Live Collector & Intelligence Suite</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --canvas: #08090C;
+      --card: #101218;
+      --card-elevated: #161822;
+      --border: rgba(255, 255, 255, 0.07);
+      --border-hover: rgba(255, 255, 255, 0.14);
+      --specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+      --indigo: #4F46E5;
+      --indigo-hover: #4338CA;
+      --emerald: #10B981;
+      --rose: #F43F5E;
+      --sky: #0EA5E9;
+      --amber: #F59E0B;
+    }
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     body {
       width: 390px;
-      background-color: #090d16;
-      color: #f1f5f9;
+      background-color: var(--canvas);
+      background-image: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.08), transparent 70%);
+      color: #F1F5F9;
       padding: 16px;
       user-select: none;
       overflow-x: hidden;
@@ -23,19 +41,19 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid #1e293b;
+      border-bottom: 1px solid var(--border);
       padding-bottom: 12px;
       margin-bottom: 12px;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
     }
     .logo-badge {
       width: 28px;
       height: 28px;
-      background: linear-gradient(135deg, #10b981, #6366f1);
+      background: linear-gradient(135deg, #4F46E5, #6366F1);
       border-radius: 8px;
       display: flex;
       align-items: center;
@@ -43,43 +61,44 @@
       font-weight: 800;
       font-size: 13px;
       color: white;
-      box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+      box-shadow: 0 0 16px rgba(79, 70, 229, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
     }
     .title {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 800;
-      color: #f8fafc;
-      letter-spacing: -0.3px;
+      color: #F8FAFC;
+      letter-spacing: -0.2px;
     }
     .version {
       font-size: 10px;
-      background: #0f172a;
-      color: #38bdf8;
+      background: rgba(255, 255, 255, 0.04);
+      color: #818CF8;
       padding: 2px 7px;
       border-radius: 9999px;
       font-weight: 700;
-      border: 1px solid #1e293b;
-      font-family: monospace;
+      border: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
     }
     .status-card {
-      background: #0f172a;
-      border: 1px solid #1e293b;
-      border-radius: 12px;
-      padding: 10px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      box-shadow: var(--specular);
+      border-radius: 14px;
+      padding: 11px 13px;
       margin-bottom: 12px;
     }
     .status-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 4px;
+      margin-bottom: 5px;
     }
     .status-label {
-      font-size: 11px;
-      color: #64748b;
-      font-weight: 600;
+      font-size: 10px;
+      color: #64748B;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.6px;
     }
     .platform-pill {
       font-size: 10px;
@@ -88,33 +107,35 @@
       border-radius: 6px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      font-family: 'JetBrains Mono', monospace;
     }
-    .platform-youtube { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); }
-    .platform-instagram { background: rgba(236, 72, 153, 0.15); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.35); }
-    .platform-flipkart { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35); }
-    .platform-amazon { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
-    .platform-myntra { background: rgba(244, 63, 94, 0.15); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.35); }
-    .platform-meesho { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); }
-    .platform-nykaa { background: rgba(236, 72, 153, 0.15); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.35); }
-    .platform-ajio { background: rgba(20, 184, 166, 0.15); color: #2dd4bf; border: 1px solid rgba(20, 184, 166, 0.35); }
-    .platform-unsupported { background: #1e293b; color: #94a3b8; }
+    .platform-youtube { background: rgba(239, 68, 68, 0.12); color: #F87171; border: 1px solid rgba(239, 68, 68, 0.25); }
+    .platform-instagram { background: rgba(168, 85, 247, 0.12); color: #C084FC; border: 1px solid rgba(168, 85, 247, 0.25); }
+    .platform-flipkart { background: rgba(59, 130, 246, 0.12); color: #60A5FA; border: 1px solid rgba(59, 130, 246, 0.25); }
+    .platform-amazon { background: rgba(245, 158, 11, 0.12); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.25); }
+    .platform-myntra { background: rgba(244, 63, 94, 0.12); color: #FB7185; border: 1px solid rgba(244, 63, 94, 0.25); }
+    .platform-meesho { background: rgba(168, 85, 247, 0.12); color: #C084FC; border: 1px solid rgba(168, 85, 247, 0.25); }
+    .platform-nykaa { background: rgba(236, 72, 153, 0.12); color: #F472B6; border: 1px solid rgba(236, 72, 153, 0.25); }
+    .platform-ajio { background: rgba(20, 184, 166, 0.12); color: #2DD4BF; border: 1px solid rgba(20, 184, 166, 0.25); }
+    .platform-unsupported { background: rgba(255, 255, 255, 0.05); color: #94A3B8; border: 1px solid var(--border); }
     
     .item-title {
       font-size: 11px;
       font-weight: 600;
-      color: #e2e8f0;
+      color: #E2E8F0;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      margin-top: 2px;
+      margin-top: 3px;
     }
 
-    /* Live Mini Sentiment Gauge Container */
+    /* In-Browser Instant Sentiment Preview */
     .preview-card {
-      background: #0f172a;
-      border: 1px solid #1e293b;
-      border-radius: 12px;
-      padding: 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      box-shadow: var(--specular);
+      border-radius: 14px;
+      padding: 13px;
       margin-bottom: 12px;
     }
     .preview-header {
@@ -124,11 +145,11 @@
       margin-bottom: 10px;
     }
     .preview-title {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.6px;
-      color: #94a3b8;
+      color: #94A3B8;
       display: flex;
       align-items: center;
       gap: 6px;
@@ -148,18 +169,18 @@
     }
     .donut-circle-bg {
       fill: none;
-      stroke: #1e293b;
+      stroke: rgba(255, 255, 255, 0.06);
       stroke-width: 8;
     }
     .donut-circle {
       fill: none;
       stroke-width: 8;
       stroke-linecap: round;
-      transition: stroke-dasharray 0.5s ease, stroke-dashoffset 0.5s ease;
+      transition: stroke-dasharray 0.4s ease, stroke-dashoffset 0.4s ease;
     }
-    .donut-neg { stroke: #f43f5e; }
-    .donut-neu { stroke: #38bdf8; }
-    .donut-pos { stroke: #10b981; }
+    .donut-neg { stroke: var(--rose); }
+    .donut-neu { stroke: var(--sky); }
+    .donut-pos { stroke: var(--emerald); }
 
     .gauge-center-text {
       position: absolute;
@@ -167,29 +188,27 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      pointer-events: none;
+      text-align: center;
     }
     .gauge-kpi {
       font-size: 16px;
-      font-weight: 900;
-      color: #ffffff;
-      line-height: 1;
-      font-variant-numeric: tabular-nums;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      color: #FFFFFF;
+      line-height: 1.1;
     }
     .gauge-sub {
-      font-size: 9px;
+      font-size: 8px;
       font-weight: 700;
-      color: #94a3b8;
-      text-transform: uppercase;
+      color: #64748B;
       letter-spacing: 0.5px;
-      margin-top: 2px;
     }
-
     .legend-column {
-      flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 5px;
+      flex: 1;
+      max-width: 140px;
     }
     .legend-row {
       display: flex;
@@ -197,82 +216,84 @@
       justify-content: space-between;
       font-size: 11px;
       font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
     }
     .legend-label {
       display: flex;
       align-items: center;
-      gap: 5px;
+      gap: 6px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-weight: 500;
+      color: #94A3B8;
+      font-size: 11px;
     }
     .dot {
-      width: 7px;
-      height: 7px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
     }
-    .dot-neg { background: #f43f5e; box-shadow: 0 0 6px rgba(244, 63, 94, 0.4); }
-    .dot-neu { background: #38bdf8; }
-    .dot-pos { background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.4); }
+    .dot-neg { background: var(--rose); }
+    .dot-neu { background: var(--sky); }
+    .dot-pos { background: var(--emerald); }
 
-    /* Executive Signal Pills */
     .signal-pills {
       display: flex;
       flex-direction: column;
       gap: 6px;
-      margin-top: 10px;
-      border-top: 1px solid #1e293b;
-      padding-top: 10px;
+      margin-top: 8px;
     }
     .health-badge {
-      display: inline-flex;
+      display: flex;
       align-items: center;
-      gap: 6px;
-      font-size: 11px;
-      font-weight: 700;
-      padding: 5px 10px;
+      justify-content: center;
+      padding: 5px 8px;
       border-radius: 8px;
-      background: rgba(244, 63, 94, 0.12);
-      color: #fb7185;
-      border: 1px solid rgba(244, 63, 94, 0.3);
+      font-size: 10px;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.04);
+      color: #94A3B8;
+      border: 1px solid var(--border);
     }
     .health-badge.favorable {
       background: rgba(16, 185, 129, 0.12);
-      color: #34d399;
-      border-color: rgba(16, 185, 129, 0.3);
+      color: #34D399;
+      border-color: rgba(16, 185, 129, 0.25);
     }
     .sarcasm-pill {
-      display: inline-flex;
+      display: flex;
       align-items: center;
-      gap: 6px;
+      justify-content: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: 8px;
       font-size: 10px;
       font-weight: 700;
-      padding: 4px 8px;
-      border-radius: 6px;
-      background: rgba(234, 179, 8, 0.12);
-      color: #fde047;
-      border: 1px solid rgba(234, 179, 8, 0.25);
+      background: rgba(245, 158, 11, 0.12);
+      color: #FBBF24;
+      border: 1px solid rgba(245, 158, 11, 0.25);
     }
     .issues-row {
       display: flex;
       align-items: center;
-      gap: 5px;
+      gap: 4px;
       flex-wrap: wrap;
+      margin-top: 2px;
     }
     .issue-tag {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
-      padding: 2px 7px;
-      border-radius: 5px;
-      background: #1e293b;
-      color: #cbd5e1;
-      border: 1px solid #334155;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: rgba(244, 63, 94, 0.12);
+      color: #FB7185;
+      border: 1px solid rgba(244, 63, 94, 0.25);
     }
 
-    /* Star Rating Breakdown in popup */
+    /* Star Breakdown */
     .star-preview-card {
-      background: #090d16;
-      border: 1px solid #1e293b;
-      border-radius: 8px;
-      padding: 8px 10px;
-      margin-top: 8px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
     }
     .star-preview-header {
       display: flex;
@@ -283,21 +304,15 @@
     .star-preview-title {
       font-size: 10px;
       font-weight: 700;
-      color: #fbbf24;
+      color: #94A3B8;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      display: flex;
-      align-items: center;
-      gap: 4px;
     }
     .avg-star-badge {
       font-size: 11px;
-      font-weight: 800;
-      color: #fbbf24;
-      background: rgba(245, 158, 11, 0.15);
-      border: 1px solid rgba(245, 158, 11, 0.3);
-      padding: 1px 6px;
-      border-radius: 4px;
+      font-weight: 700;
+      color: #FBBF24;
+      font-family: 'JetBrains Mono', monospace;
     }
     .star-bars-list {
       display: flex;
@@ -309,40 +324,29 @@
       align-items: center;
       gap: 6px;
       font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
     }
-    .star-num {
-      width: 18px;
-      font-weight: 700;
-      color: #94a3b8;
-    }
+    .star-num { width: 18px; color: #94A3B8; font-weight: 600; }
     .star-track {
       flex: 1;
-      height: 5px;
-      background: #1e293b;
-      border-radius: 3px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 9999px;
       overflow: hidden;
     }
-    .star-fill {
-      height: 100%;
-      border-radius: 3px;
-      transition: width 0.4s ease;
-    }
-    .star-fill-5, .star-fill-4 { background: #10b981; }
-    .star-fill-3 { background: #38bdf8; }
-    .star-fill-2, .star-fill-1 { background: #f43f5e; }
-    .star-count {
-      width: 50px;
-      text-align: right;
-      color: #64748b;
-      font-family: monospace;
-      font-size: 9px;
-    }
+    .star-fill { height: 100%; border-radius: 9999px; transition: width 0.3s; }
+    .star-fill-5 { background: var(--emerald); }
+    .star-fill-4 { background: #34D399; }
+    .star-fill-3 { background: var(--sky); }
+    .star-fill-2 { background: var(--amber); }
+    .star-fill-1 { background: var(--rose); }
+    .star-count { width: 28px; text-align: right; color: #64748B; font-size: 9px; }
 
-    /* Mini 3 Comment Cards */
+    /* Live Comments Preview */
     .comments-preview-title {
       font-size: 10px;
       font-weight: 700;
-      color: #64748b;
+      color: #94A3B8;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       margin-top: 10px;
@@ -352,272 +356,255 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
-      max-height: 145px;
+      max-height: 120px;
       overflow-y: auto;
     }
     .mini-comment-card {
-      background: #090d16;
-      border: 1px solid #1e293b;
+      background: #0C0E14;
+      border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 7px 9px;
-      font-size: 11px;
-    }
-    .comment-card-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 3px;
-    }
-    .comment-author {
-      font-weight: 700;
-      color: #cbd5e1;
+      padding: 6px 8px;
       font-size: 10px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 140px;
-    }
-    .comment-chip {
-      font-size: 9px;
-      font-weight: 700;
-      padding: 1px 6px;
-      border-radius: 4px;
-      text-transform: uppercase;
-    }
-    .chip-Negative { background: rgba(244, 63, 94, 0.2); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.3); }
-    .chip-Positive { background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .chip-Neutral { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
-    .comment-text-body {
-      color: #94a3b8;
       line-height: 1.35;
-      font-size: 10px;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
+    }
+    .mini-comment-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2px;
+      font-size: 9px;
+      color: #64748B;
+      font-family: 'JetBrains Mono', monospace;
     }
 
-    /* Dynamic Platform Action Sections */
-    .action-section {
-      background: #0f172a;
-      border: 1px solid #1e293b;
-      border-radius: 12px;
-      padding: 12px;
-      margin-bottom: 12px;
+    /* Actions Panel */
+    .action-panel {
       display: flex;
       flex-direction: column;
-      gap: 9px;
+      gap: 8px;
+      margin-bottom: 12px;
     }
-    .section-title {
+    .btn-collector {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      background: rgba(99, 102, 241, 0.15);
+      color: #A5B4FC;
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      box-shadow: var(--specular);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-collector:hover:not(:disabled) {
+      background: rgba(99, 102, 241, 0.25);
+      border-color: rgba(99, 102, 241, 0.5);
+      color: #FFFFFF;
+    }
+    .btn-collector.active {
+      background: var(--rose);
+      color: #FFFFFF;
+      border-color: #E11D48;
+      box-shadow: 0 0 16px rgba(244, 63, 94, 0.35);
+    }
+    .btn-collector:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* Turbo Box */
+    .turbo-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      box-shadow: var(--specular);
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .turbo-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 11px;
+      margin-bottom: 8px;
+    }
+    .turbo-title {
+      font-size: 10px;
       font-weight: 700;
-      color: #38bdf8;
+      color: #E2E8F0;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
     }
-    .section-subtitle {
+    .turbo-sub {
       font-size: 9px;
-      color: #64748b;
-      font-weight: 600;
-      text-transform: none;
+      color: #64748B;
+      font-family: 'JetBrains Mono', monospace;
     }
     .turbo-btn-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
+      gap: 6px;
+      margin-bottom: 6px;
     }
     .btn-turbo {
-      background: linear-gradient(135deg, #0284c7, #2563eb);
-      color: white;
-      padding: 9px 10px;
-      font-size: 11px;
-      font-weight: 700;
-      border: none;
+      padding: 6px 8px;
       border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.04);
+      color: #E2E8F0;
+      border: 1px solid var(--border);
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 5px;
-      transition: all 0.2s ease;
-      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+      transition: all 0.15s;
     }
     .btn-turbo:hover:not(:disabled) {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+      background: rgba(255, 255, 255, 0.08);
+      border-color: var(--border-hover);
     }
+    .btn-turbo:disabled { opacity: 0.4; cursor: not-allowed; }
+    
     .custom-fetch-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
-      background: #090d16;
-      border: 1px solid #1e293b;
-      border-radius: 8px;
-      padding: 6px 10px;
+      gap: 6px;
+      font-size: 10px;
+      color: #94A3B8;
+      margin-top: 4px;
     }
     .custom-page-label {
-      font-size: 11px;
-      color: #94a3b8;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
     }
     .page-number-input {
       width: 44px;
-      background: #0f172a;
-      border: 1px solid #334155;
+      background: #0C0E14;
+      border: 1px solid var(--border);
       border-radius: 6px;
-      color: #f8fafc;
-      font-weight: 700;
-      font-size: 12px;
-      padding: 3px 6px;
+      color: #F8FAFC;
+      padding: 3px 5px;
       text-align: center;
-    }
-    .page-number-input:focus {
-      outline: none;
-      border-color: #38bdf8;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
     }
     .btn-turbo-custom {
-      background: #1e293b;
-      color: #38bdf8;
-      border: 1px solid #334155;
-      padding: 5px 12px;
+      padding: 4px 10px;
       border-radius: 6px;
-      font-size: 11px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-    .btn-turbo-custom:hover:not(:disabled) {
-      background: #334155;
-      color: white;
-    }
-    .auto-convert-row {
-      display: flex;
-      align-items: center;
       font-size: 10px;
-      color: #94a3b8;
+      font-weight: 700;
+      background: var(--indigo);
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    .btn-turbo-custom:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .auto-convert-row {
+      margin-top: 6px;
+      font-size: 9px;
+      color: #64748B;
     }
     .checkbox-label {
       display: flex;
       align-items: center;
-      gap: 6px;
-      cursor: pointer;
-      user-select: none;
-    }
-    .checkbox-label input[type="checkbox"] {
-      accent-color: #38bdf8;
-      cursor: pointer;
-    }
-    .progress-container {
-      background: #090d16;
-      border: 1px solid #1e293b;
-      border-radius: 8px;
-      padding: 8px 10px;
-      display: flex;
-      flex-direction: column;
       gap: 5px;
+      cursor: pointer;
+    }
+
+    .progress-container {
+      margin-top: 8px;
     }
     .progress-bar-track {
-      width: 100%;
-      height: 6px;
-      background: #1e293b;
-      border-radius: 3px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 9999px;
       overflow: hidden;
     }
     .progress-bar-fill {
       height: 100%;
-      background: linear-gradient(90deg, #38bdf8, #10b981);
-      border-radius: 3px;
-      transition: width 0.3s ease;
+      background: var(--indigo);
+      border-radius: 9999px;
+      transition: width 0.25s;
     }
     .progress-text {
-      font-size: 10px;
-      font-weight: 600;
-      color: #38bdf8;
-      text-align: center;
+      font-size: 9px;
+      color: #818CF8;
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 3px;
     }
 
-    /* Buttons */
-    .btn-group {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin-bottom: 10px;
-    }
-    .btn {
+    /* Send Button */
+    .btn-primary {
       width: 100%;
-      padding: 11px 14px;
-      border: none;
-      border-radius: 9px;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 7px;
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, #10b981, #059669);
-      color: #ffffff;
-      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+      gap: 6px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      background: #F8FAFC;
+      color: #090A0F;
+      border: none;
+      box-shadow: 0 2px 10px rgba(255, 255, 255, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      cursor: pointer;
+      transition: all 0.15s ease;
     }
     .btn-primary:hover:not(:disabled) {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 18px rgba(16, 185, 129, 0.5);
+      background: #FFFFFF;
+      box-shadow: 0 4px 16px rgba(255, 255, 255, 0.25);
     }
-    .btn-secondary {
-      background: #0f172a;
-      color: #e2e8f0;
-      border: 1px solid #1e293b;
-    }
-    .btn-secondary:hover:not(:disabled) {
-      background: #1e293b;
-      border-color: #334155;
-    }
-    .btn-stop {
-      background: #ef4444;
-      color: white;
-      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-    }
-    .btn-stop:hover:not(:disabled) {
-      background: #dc2626;
-    }
-    .btn:disabled {
-      opacity: 0.45;
+    .btn-primary:disabled {
+      opacity: 0.35;
       cursor: not-allowed;
-      transform: none !important;
-      box-shadow: none !important;
+      background: rgba(255, 255, 255, 0.1);
+      color: #64748B;
+      box-shadow: none;
     }
+
+    /* Key Config */
+    .api-key-card {
+      margin-top: 10px;
+      margin-bottom: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      box-shadow: var(--specular);
+      border-radius: 12px;
+      padding: 9px 11px;
+    }
+
     .status-banner {
-      font-size: 11px;
-      color: #94a3b8;
+      font-size: 10px;
+      color: #94A3B8;
       text-align: center;
-      min-height: 16px;
-      line-height: 1.4;
-      margin-bottom: 6px;
+      padding: 6px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      font-family: 'JetBrains Mono', monospace;
     }
-    .status-banner.success { color: #34d399; font-weight: 600; }
-    .status-banner.error { color: #f87171; font-weight: 600; }
-    
+
     .footer {
-      border-top: 1px solid #1e293b;
-      padding-top: 8px;
-      margin-top: 8px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       font-size: 10px;
-      color: #64748b;
+      color: #64748B;
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+      font-family: 'JetBrains Mono', monospace;
     }
     .footer a {
-      color: #38bdf8;
+      color: #818CF8;
       text-decoration: none;
       font-weight: 600;
     }
@@ -627,14 +614,18 @@
   </style>
 </head>
 <body>
+  <!-- Extension Header -->
   <div class="header">
     <div class="brand">
-      <div class="logo-badge">S</div>
-      <div class="title">Sentinelytics</div>
+      <div class="logo-badge">S2</div>
+      <div>
+        <div class="title">Sentinelytics Ingestion Suite</div>
+      </div>
     </div>
-    <span class="version">LIVE PREVIEW</span>
+    <div class="version">v3.0 PROD</div>
   </div>
 
+  <!-- Channel & Target Card -->
   <div class="status-card">
     <div class="status-row">
       <span class="status-label">Active Channel:</span>
@@ -648,9 +639,10 @@
   <div class="preview-card" id="sentimentPreviewCard">
     <div class="preview-header">
       <span class="preview-title">
-        <span>⚡ Live Polarity Gauge</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#818CF8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        <span>Live Polarity Gauge</span>
       </span>
-      <span id="extractedCountBadge" style="font-size: 10px; font-weight: 800; color: #38bdf8; font-family: monospace;">
+      <span id="extractedCountBadge" style="font-size: 10px; font-weight: 700; color: #38BDF8; font-family: 'JetBrains Mono', monospace;">
         0 comments
       </span>
     </div>
@@ -672,15 +664,15 @@
       <div class="legend-column">
         <div class="legend-row">
           <span class="legend-label"><span class="dot dot-neg"></span><span>Negative</span></span>
-          <span id="pctNeg" style="color: #f43f5e;">0%</span>
+          <span id="pctNeg" style="color: #F43F5E;">0%</span>
         </div>
         <div class="legend-row">
           <span class="legend-label"><span class="dot dot-neu"></span><span>Neutral</span></span>
-          <span id="pctNeu" style="color: #38bdf8;">0%</span>
+          <span id="pctNeu" style="color: #0EA5E9;">0%</span>
         </div>
         <div class="legend-row">
           <span class="legend-label"><span class="dot dot-pos"></span><span>Positive</span></span>
-          <span id="pctPos" style="color: #10b981;">0%</span>
+          <span id="pctPos" style="color: #10B981;">0%</span>
         </div>
       </div>
     </div>
@@ -691,10 +683,10 @@
         <span>Awaiting comment extraction...</span>
       </div>
       <div id="sarcasmPill" class="sarcasm-pill" style="display: none;">
-        <span>⚡ 0 Sarcastic Comments (Text-Emoji Conflict)</span>
+        <span>0 Sarcastic Comments (Text-Emoji Conflict)</span>
       </div>
       <div class="issues-row" id="topIssuesContainer" style="display: none;">
-        <span style="font-size: 10px; color: #64748b; font-weight: 600;">Top Issues:</span>
+        <span style="font-size: 10px; color: #64748B; font-weight: 700;">Top Issues:</span>
         <span id="issue1" class="issue-tag">--</span>
         <span id="issue2" class="issue-tag">--</span>
       </div>
@@ -703,7 +695,7 @@
     <!-- Star Rating Breakdown Preview (Visible on E-Commerce) -->
     <div class="star-preview-card" id="starPreviewContainer" style="display: none;">
       <div class="star-preview-header">
-        <span class="star-preview-title">⭐ Customer Star Ratings</span>
+        <span class="star-preview-title">Customer Star Ratings</span>
         <span id="avgStarBadge" class="avg-star-badge">-- ★</span>
       </div>
       <div class="star-bars-list">
@@ -738,74 +730,101 @@
     <!-- Mini 3 Comment Cards Preview -->
     <div class="comments-preview-title">Live Comment Stream (Top 3)</div>
     <div class="mini-comments-list" id="miniCommentsList">
-      <div style="font-size: 11px; color: #64748b; text-align: center; padding: 12px 0;">
+      <div style="font-size: 11px; color: #64748B; text-align: center; padding: 12px 0;">
         Scroll post or click turbo fetcher to preview real comments.
       </div>
     </div>
   </div>
 
-  <!-- Dynamic Platform-Adaptive Controls -->
-  <!-- 1. E-Commerce Controls (Flipkart, Amazon, Myntra, Meesho, Nykaa, Ajio) -->
-  <div id="ecommerceControls" class="action-section" style="display: none;">
-    <div class="section-title">
-      <span>⚡ Turbo Review Page Fetcher</span>
-      <span class="section-subtitle">Authenticated In-Browser</span>
-    </div>
+  <!-- Unified Action Panel -->
+  <div id="unifiedActionPanel" class="action-panel">
+    <!-- Mode 1: Auto-Collector Live Scrolling -->
+    <button id="toggleScrollBtn" class="btn-collector" disabled>
+      <span id="toggleScrollIcon">▶</span>
+      <span id="toggleScrollText">Start Auto-Collector</span>
+    </button>
 
-    <div class="turbo-btn-row">
-      <button id="fetch5PagesBtn" class="btn-turbo">
-        <span>⚡ Next 5 Pages</span>
-      </button>
-      <button id="fetch10PagesBtn" class="btn-turbo">
-        <span>⚡ Next 10 Pages</span>
-      </button>
-    </div>
+    <!-- Dedicated RapidAPI Cloud Fetcher Button -->
+    <button id="rapidApiFetchBtn" class="btn btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; padding: 8px 12px; background: rgba(99, 102, 241, 0.12); color: #A5B4FC; border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 9px; font-weight: 700; cursor: pointer;">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+      <span>Fetch via RapidAPI</span>
+      <span style="font-size: 9px; opacity: 0.75; font-weight: normal;">(Instagram &amp; Amazon)</span>
+    </button>
 
-    <div class="custom-fetch-row">
-      <label class="custom-page-label">
-        <span>Custom:</span>
-        <input type="number" id="customPageInput" min="1" max="25" value="5" class="page-number-input" />
-        <span>pages</span>
-      </label>
-      <button id="startTurboFetchBtn" class="btn-turbo-custom">
-        <span>Fetch Pages</span>
-      </button>
-    </div>
-
-    <div class="auto-convert-row">
-      <label class="checkbox-label">
-        <input type="checkbox" id="autoConvertReviewsToggle" checked />
-        <span>Auto-convert Product URL to All-Reviews Page</span>
-      </label>
-    </div>
-
-    <div id="ecommerceProgressContainer" class="progress-container" style="display: none;">
-      <div class="progress-bar-track">
-        <div id="ecommerceProgressBar" class="progress-bar-fill" style="width: 0%;"></div>
+    <!-- Mode 2: Turbo Multi-Page Review Fetcher -->
+    <div class="turbo-box" id="turboBox">
+      <div class="turbo-header">
+        <span class="turbo-title">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span>Turbo Pagination Engine</span>
+        </span>
+        <span id="turboSubtext" class="turbo-sub">Authenticated In-Browser</span>
       </div>
-      <div id="ecommerceProgressText" class="progress-text">Fetching Page 1 of 5... (0 reviews)</div>
+
+      <div class="turbo-btn-row">
+        <button id="fetch5PagesBtn" class="btn-turbo" disabled>
+          <span>Fetch Next 5 Pages</span>
+        </button>
+        <button id="fetch10PagesBtn" class="btn-turbo" disabled>
+          <span>Next 10 Pages</span>
+        </button>
+      </div>
+
+      <div class="custom-fetch-row">
+        <label class="custom-page-label">
+          <span>Custom:</span>
+          <input type="number" id="customPageInput" min="1" max="25" value="5" class="page-number-input" />
+          <span>pages</span>
+        </label>
+        <button id="startTurboFetchBtn" class="btn-turbo-custom" disabled>
+          <span>Fetch</span>
+        </button>
+      </div>
+
+      <div class="auto-convert-row" id="autoConvertRow">
+        <label class="checkbox-label">
+          <input type="checkbox" id="autoConvertReviewsToggle" checked />
+          <span>Auto-convert Product URL to All-Reviews Page</span>
+        </label>
+      </div>
+
+      <div id="ecommerceProgressContainer" class="progress-container" style="display: none;">
+        <div class="progress-bar-track">
+          <div id="ecommerceProgressBar" class="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+        <div id="ecommerceProgressText" class="progress-text">Fetching Page 1 of 5... (0 reviews)</div>
+      </div>
     </div>
   </div>
 
-  <!-- 2. Social Media Controls (YouTube, Instagram) -->
-  <div id="socialControls" class="action-section" style="display: none;">
-    <button id="toggleScrollBtn" class="btn btn-secondary" disabled>
-      <span>▶</span> <span id="toggleScrollText">Start Auto-Collector</span>
+  <!-- Primary Pinned Action Button (Always Visible) -->
+  <div style="margin-bottom: 8px;">
+    <button id="sendToDashboardBtn" class="btn-primary" disabled>
+      <span>Send &amp; Analyze in Dashboard</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
     </button>
   </div>
 
-  <!-- Primary Send to Dashboard Button (Always Visible) -->
-  <div class="btn-group">
-    <button id="sendToDashboardBtn" class="btn btn-primary" disabled>
-      <span>Open Deep-Dive Analytics Dashboard ➔</span>
-    </button>
+  <!-- RapidAPI Key Config Section -->
+  <div class="api-key-card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+      <span style="font-size: 10px; color: #94A3B8; font-weight: 700; text-transform: uppercase;">RapidAPI Key (Instagram &amp; Amazon)</span>
+      <span id="rapidApiKeyStatus" style="font-size: 9px; color: #64748B; font-family: 'JetBrains Mono', monospace;">Checking...</span>
+    </div>
+    <div style="display: flex; gap: 6px; align-items: center;">
+      <input type="password" id="rapidApiKeyInput" placeholder="Paste RapidAPI Key..." style="flex: 1; background: #0C0E14; border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 10px; color: #E2E8F0; font-family: 'JetBrains Mono', monospace;" />
+      <button id="saveRapidApiKeyBtn" style="background: var(--indigo); border: none; border-radius: 6px; padding: 5px 10px; color: white; font-size: 10px; font-weight: 700; cursor: pointer;">Save</button>
+    </div>
+    <div style="font-size: 9px; color: #64748B; margin-top: 4px;">
+      Powers dual-stream boost for Instagram (<code>instagram-scraper-stable-api</code>) &amp; Amazon (<code>amazon-online-data-api</code>).
+    </div>
   </div>
 
   <div id="statusBanner" class="status-banner">Ready to collect from active tab.</div>
 
   <div class="footer">
     <span>Backend: <strong id="backendStatus">http://localhost:8000</strong></span>
-    <a id="openDashboardLink" href="http://localhost:3000" target="_blank">Open UI ↗</a>
+    <a id="openDashboardLink" href="http://localhost:3000" target="_blank">Open Dashboard &nearr;</a>
   </div>
 
   <script src="popup.js"></script>

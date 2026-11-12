@@ -377,7 +377,15 @@ class CommentPreprocessor:
         """
         valid_comments: List[CommentInput] = []
         seen_signatures: Set[Tuple[str, str]] = set()
+        seen_canonical_texts: Set[str] = set()
         removed_count = 0
+
+        author_date_re = re.compile(
+            r'\s+([A-Za-z][A-Za-z\s.]{1,35}?)\s*(?:Helpful)?\s*[·•]\s*(\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago|today|yesterday|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*,?\s*\d{4})(?:\s*Helpful.*)?$',
+            re.IGNORECASE
+        )
+        helpful_noise_re = re.compile(r'\s*(?:Helpful\s*(?:for\s*\d+)?|\bHelpful\b|\bREAD MORE\b|\bRead more\b|\.\.\.\s*more)\s*$', re.IGNORECASE)
+        leading_bullet_re = re.compile(r'^[•·★*!\-—\s:]+')
 
         for comment in comments:
             raw = comment.raw_text.strip()
@@ -386,12 +394,24 @@ class CommentPreprocessor:
                 removed_count += 1
                 continue
 
-            # 2. Author and normalized text deduplication (Spam bots sending duplicates)
+            # 2. Canonical deduplication (after stripping bullets, title prefix, author name, and "Helpful")
+            canon = leading_bullet_re.sub("", raw).strip()
+            canon = author_date_re.sub("", canon).strip()
+            canon = helpful_noise_re.sub("", canon).strip()
+            canon_key = re.sub(r"[^a-zA-Z0-9]", "", canon).lower()
+
             norm_text = re.sub(r"\s+", " ", raw).lower()
             signature = (comment.anonymized_author_id, norm_text)
+
             if signature in seen_signatures:
                 removed_count += 1
                 continue
+
+            if canon_key and len(canon_key) >= 6:
+                if canon_key in seen_canonical_texts:
+                    removed_count += 1
+                    continue
+                seen_canonical_texts.add(canon_key)
 
             seen_signatures.add(signature)
             valid_comments.append(comment)

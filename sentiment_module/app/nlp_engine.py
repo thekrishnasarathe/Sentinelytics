@@ -693,6 +693,7 @@ class NLPEngine:
                 ProcessedComment(
                     comment_id=item["comment_id"],
                     anonymized_author_id=item["anonymized_author_id"],
+                    author=item.get("author") or item.get("anonymized_author_id"),
                     raw_text=raw_text,
                     cleaned_text=cleaned_text,
                     timestamp=item["timestamp"],

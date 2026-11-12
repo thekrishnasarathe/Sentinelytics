@@ -263,3 +263,5 @@ export const MultiComparisonView: React.FC<MultiComparisonViewProps> = ({
   );
 };
 
+export default MultiComparisonView;
+

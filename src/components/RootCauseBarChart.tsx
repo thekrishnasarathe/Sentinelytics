@@ -18,7 +18,7 @@ interface RootCauseBarChartProps {
   onSelectCause?: (cause: string | null) => void;
 }
 
-const BAR_COLORS = ['#f43f5e', '#fb7185', '#fda4af', '#fecdd3', '#e11d48'];
+const BAR_COLORS = ['#F43F5E', '#FB7185', '#FDA4AF', '#FECDD3', '#E11D48'];
 
 export const RootCauseBarChart: React.FC<RootCauseBarChartProps> = ({
   rootCauses,
@@ -27,26 +27,26 @@ export const RootCauseBarChart: React.FC<RootCauseBarChartProps> = ({
   onSelectCause,
 }) => {
   const chartData = (rootCauses || []).map((item, idx) => ({
-    category: item.category,
-    count: item.count,
-    percentage: item.percentage,
+    category: item.category || 'Other',
+    count: item.count ?? 0,
+    percentage: item.percentage ?? 0,
     color: BAR_COLORS[idx % BAR_COLORS.length],
     samples: item.sample_comments || [],
   }));
 
-  const totalNegativeInCauses = chartData.reduce((acc, curr) => acc + curr.count, 0);
+  const totalNegativeInCauses = chartData.reduce((acc, curr) => acc + (curr.count || 0), 0);
 
   return (
-    <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-5 shadow-xl hover:border-slate-700/80 transition-all backdrop-blur-sm flex flex-col h-full">
-      <div className="flex items-center justify-between pb-3 border-b border-[#1e293b] mb-3">
+    <div className="obsidian-card rounded-2xl p-5 shadow-2xl flex flex-col h-full transition-all">
+      <div className="flex items-center justify-between pb-3 border-b border-white/5 mb-3">
         <div className="flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 text-rose-400" />
+          <AlertCircle className="w-4 h-4 text-rose-400" />
           <div>
-            <h3 className="text-base font-semibold text-slate-100">
+            <h3 className="text-sm font-bold text-slate-100 tracking-tight">
               Tier-2 Root-Cause Breakdown
             </h3>
-            <p className="text-xs text-slate-400">
-              Domain-adaptive failure modes ({platform})
+            <p className="text-[11px] text-slate-400">
+              Domain-adaptive failure modes ({((platform || 'General')).toUpperCase()}) &bull; Click bar to filter
             </p>
           </div>
         </div>
@@ -54,7 +54,7 @@ export const RootCauseBarChart: React.FC<RootCauseBarChartProps> = ({
         {selectedCause && (
           <button
             onClick={() => onSelectCause && onSelectCause(null)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 transition-all"
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 transition-all cursor-pointer"
             title="Clear filter"
           >
             <Filter className="w-3 h-3" />
@@ -77,19 +77,27 @@ export const RootCauseBarChart: React.FC<RootCauseBarChartProps> = ({
               layout="vertical"
               data={chartData}
               margin={{ top: 10, right: 24, left: 10, bottom: 5 }}
+              onClick={(e: any) => {
+                if (e && e.activePayload && e.activePayload[0]) {
+                  const clicked = e.activePayload[0].payload.category;
+                  if (onSelectCause) {
+                    onSelectCause(selectedCause === clicked ? null : clicked);
+                  }
+                }
+              }}
             >
               <XAxis
                 type="number"
                 tick={{ fill: '#94a3b8', fontSize: 11 }}
-                axisLine={{ stroke: '#334155' }}
-                tickLine={{ stroke: '#334155' }}
+                axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                tickLine={{ stroke: 'rgba(255,255,255,0.1)' }}
               />
               <YAxis
                 type="category"
                 dataKey="category"
                 width={150}
                 tick={{ fill: '#cbd5e1', fontSize: 11 }}
-                axisLine={{ stroke: '#334155' }}
+                axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
                 tickLine={false}
                 tickFormatter={(val: string) =>
                   val.length > 20 ? `${val.slice(0, 19)}…` : val
@@ -100,63 +108,56 @@ export const RootCauseBarChart: React.FC<RootCauseBarChartProps> = ({
                   if (active && payload && payload.length) {
                     const data = payload[0].payload;
                     return (
-                      <div className="bg-slate-950/95 border border-slate-700/80 p-3 rounded-xl shadow-2xl backdrop-blur-md max-w-xs">
-                        <div className="text-xs font-semibold text-rose-400 mb-1">
-                          {data.category}
+                      <div className="bg-[#0C0E14] border border-white/10 p-3 rounded-xl shadow-2xl backdrop-blur-md">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full"
+                            style={{ backgroundColor: data.color }}
+                          />
+                          <span className="text-xs font-semibold text-slate-200">
+                            {data.category}
+                          </span>
                         </div>
-                        <div className="text-sm font-bold text-white mb-2">
-                          {data.count.toLocaleString()} comments ({data.percentage}%)
+                        <div className="text-xs font-bold text-white font-mono tabular-nums">
+                          {data.count.toLocaleString()} occurrences{' '}
+                          <span className="text-slate-400 font-normal">
+                            ({data.percentage}%)
+                          </span>
                         </div>
-                        {data.samples && data.samples.length > 0 && (
-                          <div className="text-[11px] text-slate-300 italic border-t border-slate-800 pt-1.5 line-clamp-2">
-                            "{data.samples[0]}"
-                          </div>
-                        )}
-                        <div className="mt-2 text-[10px] text-indigo-400 font-medium">
-                          Click bar to filter feed
-                        </div>
+                        <p className="text-[10px] text-slate-500 mt-1 italic">Click bar to isolate in stream</p>
                       </div>
                     );
                   }
                   return null;
                 }}
               />
-              <Bar
-                dataKey="count"
-                radius={[0, 6, 6, 0]}
-                cursor="pointer"
-                onClick={(entry: any) => {
-                  if (onSelectCause) {
-                    onSelectCause(
-                      selectedCause === entry.category ? null : entry.category
-                    );
-                  }
-                }}
-              >
-                {chartData.map((entry) => (
-                  <Cell
-                    key={entry.category}
-                    fill={entry.color}
-                    opacity={
-                      selectedCause
-                        ? selectedCause === entry.category
-                          ? 1
-                          : 0.35
-                        : 0.9
-                    }
-                  />
-                ))}
+              <Bar dataKey="count" radius={[0, 6, 6, 0]} cursor="pointer">
+                {chartData.map((entry, index) => {
+                  const isSelected = selectedCause === entry.category;
+                  return (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={entry.color}
+                      opacity={selectedCause && !isSelected ? 0.35 : 1}
+                      stroke={isSelected ? '#FFFFFF' : 'none'}
+                      strokeWidth={isSelected ? 1.5 : 0}
+                    />
+                  );
+                })}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      {/* Footer Instructions */}
-      <div className="pt-2 text-center text-[11px] text-slate-400 border-t border-slate-800/60 mt-1">
-        Click on any bar to filter the comment inspection feed by root cause
+      <div className="pt-2 text-center text-[11px] text-slate-400 border-t border-white/5 mt-auto flex items-center justify-between">
+        <span>Click any bar to filter comments</span>
+        <span className="font-mono tabular-nums text-slate-300">
+          {totalNegativeInCauses.toLocaleString()} total complaints
+        </span>
       </div>
     </div>
   );
 };
 
+export default RootCauseBarChart;

@@ -4,19 +4,67 @@ Supports Social Media (YouTube, Instagram) and E-Commerce (Amazon, Flipkart).
 """
 
 from typing import List, Optional, Literal, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class CommentInput(BaseModel):
-    comment_id: str = Field(..., description="Unique comment or review identifier")
-    raw_text: str = Field(..., description="Original raw text preserving emojis, Hinglish, and slang")
-    timestamp: str = Field(..., description="ISO-8601 formatted timestamp string")
+    comment_id: str = Field(default="", description="Unique comment or review identifier")
+    raw_text: str = Field(default="", description="Original raw text preserving emojis, Hinglish, and slang")
+    timestamp: str = Field(default="", description="ISO-8601 formatted timestamp string")
     like_count: int = Field(default=0, description="Number of likes or helpful upvotes")
-    anonymized_author_id: str = Field(..., description="SHA-256 hashed author identifier for spam deduplication")
+    anonymized_author_id: str = Field(default="user", description="SHA-256 hashed or raw author identifier for deduplication")
+    author: Optional[str] = Field(default=None, description="Original buyer or commenter name")
     # E-Commerce Product Review fields
     star_rating: Optional[int] = Field(default=None, description="Star rating 1 to 5 for Amazon/Flipkart reviews")
     verified_purchase: Optional[bool] = Field(default=None, description="Whether review is from a verified buyer")
     product_variant: Optional[str] = Field(default=None, description="Purchased product variant/SKU")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # 1. Map flexible text aliases to raw_text
+            if not data.get("raw_text"):
+                data["raw_text"] = (
+                    data.get("text")
+                    or data.get("comment")
+                    or data.get("review_text")
+                    or data.get("body")
+                    or ""
+                )
+
+            # 2. Map flexible author aliases to anonymized_author_id
+            if not data.get("anonymized_author_id"):
+                data["anonymized_author_id"] = (
+                    data.get("author")
+                    or data.get("user")
+                    or data.get("author_id")
+                    or data.get("reviewer")
+                    or "user"
+                )
+
+            # 3. Map flexible rating aliases to star_rating
+            if data.get("star_rating") is None:
+                val = data.get("rating") or data.get("stars") or data.get("score_stars")
+                if val is not None:
+                    try:
+                        data["star_rating"] = int(val)
+                    except (ValueError, TypeError):
+                        pass
+
+            # 4. Generate comment_id if missing
+            if not data.get("comment_id"):
+                import hashlib
+                auth = str(data.get("anonymized_author_id", "user"))
+                txt = str(data.get("raw_text", ""))
+                h = hashlib.sha256(f"{auth}::{txt}".encode("utf-8")).hexdigest()[:16]
+                data["comment_id"] = f"c_{h}"
+
+            # 5. Default timestamp if missing
+            if not data.get("timestamp"):
+                from datetime import datetime, timezone
+                data["timestamp"] = datetime.now(timezone.utc).isoformat()
+        return data
 
 
 class PostInput(BaseModel):
@@ -74,13 +122,13 @@ class AnalyzeRequest(BaseModel):
 
 class BrowserIngestRequest(BaseModel):
     post_url: str = Field(..., description="Public link of the post or product page")
-    post_id: str = Field(..., description="Unique post ID, ASIN, FSN, or video ID")
+    post_id: Optional[str] = Field(default=None, description="Unique post ID, ASIN, FSN, or video ID")
     title: Optional[str] = Field(default=None, description="Title of the video or product")
-    platform: Literal["youtube", "instagram", "amazon", "flipkart", "myntra", "meesho", "nykaa", "ajio"] = Field(
-        default="youtube",
+    platform: Optional[Literal["youtube", "instagram", "amazon", "flipkart", "myntra", "meesho", "nykaa", "ajio"]] = Field(
+        default=None,
         description="Platform: youtube, instagram, amazon, flipkart, myntra, meesho, nykaa, ajio"
     )
-    comments: List[CommentInput] = Field(..., description="List of scraped comments/reviews from browser extension")
+    comments: List[CommentInput] = Field(default_factory=list, description="List of scraped comments/reviews from browser extension")
     model_option: Literal["vader_hybrid", "xlm_roberta", "gemini_flash"] = Field(
         default="vader_hybrid",
         description="Sentiment model backend"
@@ -90,6 +138,7 @@ class BrowserIngestRequest(BaseModel):
 class ProcessedComment(BaseModel):
     comment_id: str
     anonymized_author_id: str
+    author: Optional[str] = None
     raw_text: str
     cleaned_text: str
     timestamp: str
@@ -253,6 +302,7 @@ class SettingsKeysResponse(BaseModel):
     apify_api_token_configured: bool = Field(default=False)
     instagram_access_token_configured: bool = Field(default=False)
     scraper_api_key_configured: bool = Field(default=False)
+    rapidapi_key_configured: bool = Field(default=False)
     masked_keys: Dict[str, str] = Field(default_factory=dict)
 
 
@@ -262,3 +312,19 @@ class SettingsKeysUpdate(BaseModel):
     apify_api_token: Optional[str] = None
     instagram_access_token: Optional[str] = None
     scraper_api_key: Optional[str] = None
+    rapidapi_key: Optional[str] = None
+
+
+class RapidApiInstagramRequest(BaseModel):
+    shortcode: Optional[str] = None
+    post_id: Optional[str] = None
+    post_url: Optional[str] = None
+    max_comments: Optional[int] = 1000
+
+
+class RapidApiAmazonRequest(BaseModel):
+    asin: Optional[str] = None
+    post_id: Optional[str] = None
+    post_url: Optional[str] = None
+    country_code: Optional[str] = "IN"
+    max_reviews: Optional[int] = 200

@@ -46,7 +46,7 @@ export const LiveInsightsPanel: React.FC<LiveInsightsPanelProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              Automated synthesis for {platform.toUpperCase()} target
+              Automated synthesis for {((platform || 'General')).toUpperCase()} target
             </p>
           </div>
         </div>
@@ -157,4 +157,6 @@ export const LiveInsightsPanel: React.FC<LiveInsightsPanelProps> = ({
     </div>
   );
 };
+
+export default LiveInsightsPanel;
 
