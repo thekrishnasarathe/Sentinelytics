@@ -1,29 +1,31 @@
-# Social Media & E-Commerce Sentiment Analysis Platform (v2.0)
+# Sentinelytics — Social Media & E-Commerce Sentiment Intelligence Platform (v3.0)
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688.svg)](https://fastapi.tiangolo.com/)
 [![React 19](https://img.shields.io/badge/React-19.0-61DAFB.svg)](https://react.dev/)
 [![Tailwind CSS v4](https://img.shields.io/badge/TailwindCSS-4.0-38B2AC.svg)](https://tailwindcss.com/)
 [![Vite 8](https://img.shields.io/badge/Vite-8.3-646CFF.svg)](https://vitejs.dev/)
-[![Tests](https://img.shields.io/badge/Tests-9%20Passed%20(100%25)-success.svg)](https://pytest.org/)
+[![Chrome Extension MV3](https://img.shields.io/badge/Extension-Manifest%20V3-4285F4.svg)](https://developer.chrome.com/docs/extensions/mv3/)
+[![Tests](https://img.shields.io/badge/Tests-27%20Passed%20(100%25)-success.svg)](https://pytest.org/)
 
-An enterprise-grade, dual-domain sentiment analysis and root-cause diagnostic platform for **Social Media (YouTube, Instagram)** and **E-Commerce (Amazon, Flipkart)**. Built with **2-Tier Polarity & Root-Cause Classification**, **Uncapped Ingestion Engine**, **Hinglish & Emoji Normalization**, and **Sub-Second (&lt;1s) ReportLab PDF and CSV Exporters**.
+An enterprise-grade, dual-domain sentiment analysis and root-cause diagnostic platform for **Social Media (YouTube, Instagram)** and **E-Commerce (Amazon, Flipkart, Myntra, Meesho, Nykaa, Ajio)**. Built with a **Domain-Adaptive 2-Tier NLP & Sarcasm Engine**, **Hybrid Live/Extension Ingestion**, **SQLite Persistence & Multi-Comparison**, **Obsidian Architectural Dashboard (v3.0)**, and **Sub-Second (<1s) ReportLab PDF and CSV Exporters**.
 
 ---
 
-## 🌟 Key Capabilities (v2.0 Upgrade)
+## Key Capabilities (v3.0)
 
-### 1. Dual-Domain Multi-Platform Ingestion
-- **Social Media:** YouTube (Data API v3) & Instagram (Graph API / Public Scraper).
-- **E-Commerce:** Amazon (ASIN Reviews) & Flipkart (FSN Reviews) with star rating extraction (1★ to 5★), verified buyer flags, and product SKU variants.
-- **Uncapped Pagination Engine:** No artificial comment caps (`max_comments=None` default). Automatically traverses all pagination cursors (`nextPageToken` / `cursor` / `page=1..N`) with rate-limit retry and backoff, recording `unbounded_fetch=True` and `pages_fetched`.
+### 1. Multi-Channel & Hybrid Ingestion Architecture
+- **Social Media:** YouTube (Data API v3 & keyless `youtube-comment-downloader`) and Instagram (RapidAPI / Graph API / Instaloader + Browser Extension DOM collector fallback).
+- **E-Commerce:** Amazon (`amazon.in` / `amazon.com` via direct HTML + RapidAPI metadata hybrid + Apify fallback), Flipkart (`flipkart.com` 2026 `"Verified Purchase"` & legacy card parser), plus universal e-commerce support (Myntra, Meesho, Nykaa, Ajio) with star ratings (1★–5★), verified buyer badges, and SKU variant parsing.
+- **Chrome Extension Collector (`browser_extension/`, Manifest V3 v2.2.0):** Isolated platform engines (`Instagram`, `Flipkart`, `Amazon`, `YouTube`) with single-instance state guard, automatic multi-page pagination for Flipkart/Amazon, and direct one-click streaming to `POST /api/ingest-browser`.
 
-### 2. Domain-Adaptive 2-Tier NLP Engine
+### 2. Domain-Adaptive 2-Tier NLP & Polarity Conflict Engine
 - **Tier-1 Polarity Scoring:** Positive (`>= 0.05`), Neutral (`-0.05` to `0.05`), Negative (`<= -0.05`).
-- **Tier-2 Negative Root-Cause Sub-Tagging:** Automatically adapts diagnostics to the source domain:
+- **DeepMoji-Style Text–Emoji Conflict & Sarcasm Detection:** Detects polarity clashes where surface positive phrasing pairs with negative/frustrated emojis (and vice versa), flagging sarcastic overrides cleanly (`sarcastic_comments_count`, Forensic Sarcasm Badges).
+- **Tier-2 Negative Root-Cause Sub-Tagging (with >70% High-Negative Critical Alert):**
   - **Social Media:**
     1. *Technical / Feature Bugs* (crash, login failure, freeze, broken update, UI glitch)
-    2. *Audio / Video / Caption Quality* (audio desync, echo, mic buzzing, pixelated 1080p, subtitle delay)
+    2. *Audio / Video / Caption Quality* (audio desync, echo, mic noise, resolution blur, subtitle delay)
     3. *Content Dissatisfaction* (clickbait thumbnail, misleading title, dull pace, time waste)
     4. *Coordinated Spam / Trolls* (hate raids, ratio campaigns, dead channel comments)
   - **E-Commerce:**
@@ -33,74 +35,91 @@ An enterprise-grade, dual-domain sentiment analysis and root-cause diagnostic pl
     4. *Value for Money / Pricing & Warranty* (overpriced, paisa barbaad, refund denied, warranty rejected)
 
 ### 3. 4-Step Linguistic & Noise Preprocessor
-1. **Bot & Spam URL / Promo Stripping & Author Deduplication:** Filters out promotional links, crypto scams, and identical author spam.
-2. **Expressive Emoji-to-Sentiment Mapping:** Anchors emojis (`🔥`, `❤️`, `😍`, `😡`, `😭`, `👎`, `💔`, `🤮`) to explicit polarity weights.
-3. **Bilingual Hinglish Normalization:** Normalizes Romanized Hindi phrases like `paisa vasool`, `bilkul nakli`, `battery backup bekar hai`, `zabardast`, `shandar`, `kamaal`, `paisa barbaad`.
-4. **Sarcasm & Negation Preservation:** Detects sarcastic patterns (*"great job breaking the UI"*) and negation phrases (*"not working"*, *"wont turn on"*, *"camera feature doesn't load and won't open"*).
+1. **Bot & Spam URL Stripping + Author Deduplication:** Filters promotional URLs, crypto scams, and duplicate comments per hashed author ID (`SHA-256`).
+2. **Expressive Emoji-to-Sentiment Mapping:** Anchors unicode emojis (`🔥`, `❤️`, `😍`, `😡`, `😭`, `👎`, `💔`, `🤮`) to explicit polarity weights.
+3. **Bilingual Hinglish Normalization:** Normalizes Romanized Hindi phrases (`paisa vasool`, `bilkul nakli`, `battery backup bekar hai`, `zabardast`, `shandar`, `kamaal`, `paisa barbaad`).
+4. **Sarcasm & Negation Preservation:** Preserves multi-word negations (`"not working"`, `"won't turn on"`, `"doesn't load"`) and ironic templates (`"great job breaking the UI"`).
 
-### 4. Interactive Analytics Dashboard (React & Static)
-- **4 Visual Charts:**
-  - **Chart 1:** Interactive Polarity Donut Chart with center KPI.
-  - **Chart 2:** Tier-2 Negative Root-Cause Horizontal Bar Chart (adapting to domain).
-  - **Chart 3:** Time-Series Sentiment Trend & Volume Graph.
-  - **Chart 4:** 1★–5★ Star Rating Distribution (E-Commerce) or Top Keyword Frequency Clusters (Social).
-- **Sub-Second Exporters:** Generates polished executive ReportLab PDFs and multi-section CSVs in **&lt;0.02s** directly from atomic cache storage.
-- **Fail-Safe Offline Mode:** In-browser client-side computation fallback ensures the dashboard never displays a blank white screen even if the backend is starting up.
+### 4. Obsidian Architectural Analytics Dashboard (v3.0)
+- **`Ctrl+K` / `⌘K` Command Palette:** Keyboard-driven launcher (`CommandPalette.tsx`) to jump across demo benchmarks, views, settings, and sub-second exports.
+- **Sentiment Telemetry Ribbon:** Full-width proportional negative / neutral / positive polarity gauge with compound score indicator and one-click Sarcasm Clash filtering.
+- **Cross-Filtering Active Filter Bar:** Click any slice in the Polarity Donut Chart, bar in the Tier-2 Root-Cause Chart, keyword chip, or star-rating bar to cross-filter the paginated Comment Explorer (`50 items/page`), complete with dismissible filter chips and instant client-side **Export Filtered CSV**.
+- **4 Interactive Recharts Visualizations:** Polarity Donut Chart with center Net Score KPI, Domain-Adaptive Root-Cause Bar Chart, Normalized Wave Timeline Trend Chart, and Top Keywords / 1★–5★ Rating Distribution Widget.
+- **AI Executive Insights & Product Preview Drawer:** Displays executive summaries, top customer pain points, actionable recommendations, confidence/subjectivity meters, and raw feed inspection.
+- **History Hub & Multi-Comparison View:** Persists every run in SQLite (`sentiment_module/sentiment_hub.db`) for instant reload and side-by-side target comparison (`POST /api/compare`).
+- **React `ErrorBoundary` Recovery:** Safe diagnostic fallback UI (`src/main.tsx`) preventing unhandled exceptions from blanking the screen.
+- **Sub-Second Exporters:** Generates ReportLab executive PDFs and normalized CSV reports in **< 0.02s** from pre-computed cache JSON files.
 
 ---
 
-## 📁 Repository Architecture
+## Repository Architecture
 
-```
+```text
 social-media-sentiment-analysis-module/
-├── sentiment_module/                  # Canonical Python Package
+├── sentiment_module/                  # Core Python Package & FastAPI Backend
 │   ├── app/
-│   │   ├── main.py                    # FastAPI server & REST endpoints
-│   │   ├── schemas.py                 # Pydantic schemas (E-comm, star ratings, uncapped flags)
-│   │   ├── extractor.py               # YouTube, Instagram, Amazon, Flipkart extractors
-│   │   ├── preprocessor.py            # 4-step noise & Hinglish preprocessor
-│   │   ├── nlp_engine.py              # Domain-adaptive Tier-1 & Tier-2 NLP engine
-│   │   ├── cache_manager.py           # Atomic JSON file cache manager
-│   │   ├── exporter.py                # Sub-second PDF (ReportLab) & CSV exporter
-│   │   └── static/
-│   │       └── index.html             # Synced standalone HTML/Tailwind dashboard
-│   ├── sample_data/                   # Realistic 1,000+ item fallback datasets
-│   │   ├── youtube_flagged_post.json  # 1,045 YouTube comments (72% Neg)
-│   │   ├── amazon_product_reviews.json# 1,250 Amazon reviews (ASIN: B09X6GMNP7)
-│   │   └── flipkart_product_reviews.json # 1,250 Flipkart reviews (FSN: MOBGH73XHZ6QG9FZ)
+│   │   ├── main.py                    # FastAPI app, REST endpoints, /static & /assets mounts
+│   │   ├── schemas.py                 # Pydantic v2 models & flexible field aliases
+│   │   ├── extractor.py               # YouTube, Instagram, Amazon, Flipkart & Universal extractors
+│   │   ├── preprocessor.py            # 4-step noise, emoji, Hinglish & sarcasm preprocessor
+│   │   ├── nlp_engine.py              # Domain-adaptive Tier-1, Tier-2 & conflict NLP engine
+│   │   ├── cache_manager.py           # Atomic JSON cache manager (<5ms retrieval)
+│   │   ├── history_db.py              # SQLite manager (sentiment_hub.db) for history & comparison
+│   │   ├── exporter.py                # Sub-second ReportLab PDF & CSV exporters
+│   │   └── static/                    # Production Vite build served by FastAPI (:8000)
+│   ├── sample_data/                   # Pre-loaded 1,000+ item offline benchmark datasets
+│   │   ├── youtube_flagged_post.json
+│   │   ├── amazon_product_reviews.json
+│   │   └── flipkart_product_reviews.json
 │   ├── tests/
-│   │   └── test_pipeline.py           # Comprehensive pytest suite (9 tests)
-│   ├── cli_batch_runner.py            # CLI benchmark runner across all 4 platforms
-│   ├── cache/                         # Pre-computed atomic JSON caches
-│   └── exports/                       # Generated PDF and CSV reports
-├── app/                               # Backward-compatibility shims forwarding to sentiment_module
-│   ├── __init__.py
-│   ├── schemas.py
-│   ├── extractor.py
-│   ├── nlp_engine.py
-│   ├── preprocessor.py
-│   ├── cache_manager.py
-│   ├── exporter.py
-│   ├── main.py
-│   └── static/index.html
-├── src/                               # React 19 + TypeScript + Tailwind CSS Frontend
-│   ├── App.tsx                        # Complete 4-preset interactive dashboard
-│   ├── main.tsx                       # React DOM root entrypoint
-│   └── index.css                      # Tailwind CSS v4 styling
-├── tests/                             # Root test forwarding shim
-│   └── test_pipeline.py
+│   │   └── test_pipeline.py           # End-to-end pytest suite (27 tests)
+│   ├── cli_batch_runner.py            # CLI benchmark runner across all 4 core platforms
+│   ├── cache/                         # Runtime pre-computed JSON caches (gitignored)
+│   ├── exports/                       # Runtime PDF & CSV exports (gitignored)
+│   └── sentiment_hub.db               # Runtime SQLite history database (gitignored)
+├── browser_extension/                 # Chrome Extension (Manifest V3, v2.2.0)
+│   ├── manifest.json                  # Permissions & supported social/e-commerce host patterns
+│   ├── popup.html                     # Obsidian-themed extension popup UI
+│   ├── popup.js                       # Extension popup controller & dashboard push
+│   ├── content.js                     # Isolated YouTube/Instagram/Flipkart/Amazon engines
+│   ├── content.css                    # Floating collection telemetry badge styles
+│   └── background.js                  # Service worker event handling
+├── src/                               # React 19 + TypeScript + Tailwind CSS v4 Frontend
+│   ├── App.tsx                        # Main command center dashboard
+│   ├── main.tsx                       # React entrypoint wrapped with ErrorBoundary
+│   ├── types.ts                       # TypeScript interfaces matching FastAPI schemas
+│   ├── index.css                      # Tailwind CSS v4 & Obsidian architectural tokens
+│   └── components/
+│       ├── ActiveFilterBar.tsx        # Cross-chart filter pills & filtered CSV export
+│       ├── CommandPalette.tsx         # Ctrl+K / ⌘K modal command launcher
+│       ├── EngagementTrendsChart.tsx  # Chronological wave area chart
+│       ├── HistoryView.tsx            # SQLite Historical Runs manager
+│       ├── LiveInsightsPanel.tsx      # Executive summary, pain points & recommendations
+│       ├── MultiComparisonView.tsx    # Side-by-side post/product comparison view
+│       ├── PlatformIcons.tsx          # Crisp vector platform SVG icons
+│       ├── ProductPreviewDrawer.tsx   # Raw audited comment/review slide-over inspector
+│       ├── RootCauseBarChart.tsx      # Interactive horizontal Tier-2 root-cause chart
+│       ├── SentimentDonutChart.tsx    # Interactive polarity donut chart with center KPI
+│       ├── SentimentTelemetryRibbon.tsx # Full-width proportional telemetry bar
+│       └── TopKeywordsWidget.tsx      # Keyword clusters & 1★–5★ distribution tabs
+├── docs/                              # Architecture docs & progress logs
+│   └── ARCHITECTURE.md
+├── .env.example                       # Optional API keys template (copy to .env)
+├── .gitignore                         # Excludes .env, node_modules, dist, cache, exports, *.db
 ├── cli_batch_runner.py                # Root CLI runner wrapper
-├── package.json                       # Vite, React 19, Lucide, Tailwind v4
-├── vite.config.ts                     # Vite config with /api proxy to :8000
-├── requirements.txt                   # FastAPI, VaderSentiment, ReportLab, Pandas, Pytest
+├── index.html                         # Vite HTML entry with Plus Jakarta Sans & JetBrains Mono
+├── package.json                       # React 19, Recharts 3, Lucide Icons, Tailwind v4, Vite 8
 ├── pytest.ini                         # Pytest configuration
-├── DAILY_PROGRESS_2_NOV_2026.md       # MOM Progress report ready to paste into tracking sheets
+├── requirements.txt                   # FastAPI, Uvicorn, VaderSentiment, ReportLab, Pandas, BS4
+├── start.py                           # Unified full-stack launcher & port manager
+├── tsconfig.json                      # TypeScript compiler configuration
+├── vite.config.ts                     # Vite config with /api proxy to :8000
 └── README.md
 ```
 
 ---
 
-## 🚀 Quickstart Guide
+## Quickstart & Environment Setup
 
 ### 1. Install Backend Dependencies
 ```bash
@@ -112,115 +131,114 @@ pip install -r requirements.txt
 npm install
 ```
 
+### 3. Optional API Keys (`.env` or In-App Settings Modal)
+Copy `.env.example` to `.env` (never commit `.env` to Git) or configure keys at runtime via the **API Keys** button in the dashboard (`POST /api/settings/keys`):
+- `YOUTUBE_API_KEY` *(optional)* — Official YouTube Data API v3 key (keyless scraping works automatically as fallback)
+- `GEMINI_API_KEY` *(optional)* — Enables `gemini-2.5-flash` deep contextual LLM scoring
+- `RAPIDAPI_KEY` *(optional)* — Enables hybrid RapidAPI metadata/comment lookups
+- `INSTAGRAM_ACCESS_TOKEN` / `SCRAPER_API_KEY` / `APIFY_API_TOKEN` *(optional)* — Additional cloud extraction providers
+
 ---
 
-## 🏃 Running the Application
+## Running the Application
 
-### Option A: One-Command Auto-Launcher (Recommended)
-Start both FastAPI backend (:8000) and Vite React dashboard (:3000) together with automatic healthcheck and browser launch:
+### Option A: One-Command Full-Stack Launcher (Recommended)
+Starts both the FastAPI backend (`:8000`) and Vite React dev dashboard (`:3000`) with automatic port conflict cleanup and health checks:
 ```bash
 python start.py
 ```
-*Flags supported:*
-- `python start.py --no-browser` (do not auto-launch default browser)
-- `python start.py --backend-only` (run FastAPI backend only on :8000)
-- `python start.py --frontend-only` (run Vite React frontend only on :3000)
-- Press `Ctrl+C` at any time to cleanly stop both servers.
+Supported flags:
+- `--no-browser` — Skip auto-opening the browser tab
+- `--backend-only` — Start only FastAPI on `--backend-port` (default `8000`)
+- `--frontend-only` — Start only Vite on `--frontend-port` (default `3000`)
+- `--backend-port PORT` / `--frontend-port PORT` — Override default ports
 
----
+### Option B: Standalone FastAPI Production Mode
+Build the React production bundle and sync it into `sentiment_module/app/static/`, then run Uvicorn:
+```bash
+npx tsc --noEmit
+npm run build
+# Copy dist/* into sentiment_module/app/static/ (e.g., PowerShell):
+Copy-Item -Path dist\* -Destination sentiment_module\app\static\ -Recurse -Force
 
-### Option B: Manual Multi-Terminal Launch (Dev Workflow)
+uvicorn sentiment_module.app.main:app --host 0.0.0.0 --port 8000
+```
+- Web Dashboard: `http://localhost:8000`
+- Swagger / OpenAPI Docs: `http://localhost:8000/docs`
 
-1. **Terminal 1 — Start the FastAPI Backend Server (Port 8000):**
-   ```bash
-   uvicorn sentiment_module.app.main:app --host 0.0.0.0 --port 8000 --reload
-   ```
-   - OpenAPI Swagger Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-   - Standalone Static Dashboard: [http://localhost:8000](http://localhost:8000)
+### Option C: Chrome Extension Installation (Live Browser Session Collector)
+1. Open Chrome and navigate to `chrome://extensions/`.
+2. Enable **Developer mode** (top-right toggle).
+3. Click **Load unpacked** and select the `browser_extension/` directory.
+4. Open any supported YouTube, Instagram, Flipkart, Amazon, Myntra, Meesho, Nykaa, or Ajio page, collect comments/reviews from the extension popup, and click **Send to Dashboard**.
 
-2. **Terminal 2 — Start the React/Vite Dashboard (Port 3000):**
-   ```bash
-   npm run dev
-   ```
-   - Open browser at: [http://localhost:3000](http://localhost:3000)
-   - Automatically proxies `/api/*` to `http://127.0.0.1:8000`.
-
----
-
-### Option C: Terminal Batch Runner & Benchmark
-Run the automated batch runner across YouTube, Instagram, Amazon, and Flipkart:
+### Option D: Terminal Batch Runner & Latency Benchmark
+Pre-compute benchmark caches across all 4 core platforms:
 ```bash
 python sentiment_module/cli_batch_runner.py
 ```
-**Benchmark Output:**
-- 4,500+ comments and reviews ingested, preprocessed, and classified in **1.52 seconds**.
-- CSV and PDF reports generated in **< 0.02s** (under 1-second SLA target verified).
+Verified benchmark output:
+- Processed **4 platforms (4,500+ raw items)** in **1.31s** total runtime.
+- Sub-second exports verified on all 4 caches: **CSV in `0.0015s–0.0156s`**, **PDF in `0.0101s–0.0131s`**.
 
 ---
 
-## 🧪 Running the Automated Test Suite
+## Running the Automated Test Suite
 
-Run all 9 end-to-end tests:
+Execute all 27 unit & FastAPI integration tests:
 ```bash
-pytest
+python -m pytest sentiment_module/tests -v
 ```
-Or with detailed output:
+Verified coverage (**27 passed, 100%**):
+- 4-step spam/bot filtering, author deduplication, ISO-8601 timestamp normalization
+- Bilingual Hinglish classification & DeepMoji-style text–emoji conflict sarcasm detection
+- Domain-adaptive Tier-2 root-cause diagnostics & 1★–5★ star rating distributions
+- Live HTML parsing for Flipkart 2026 `"Verified Purchase"` review cards & anti-JSON-fragment guards
+- Uncapped pagination & blocked-extractor fallback handling
+- FastAPI endpoints: `/api/analyze`, `/api/ingest-browser` (with flexible field aliases), `/api/analyze-quick`, `/api/compare`, `/api/history`, `/api/settings/keys`, and sub-second `/api/export/{post_id}/csv|pdf`
+
+You can also run TypeScript verification on the frontend:
 ```bash
-pytest -v
-```
-
-All 9 test cases verify:
-1. Spam link and duplicate bot removal
-2. Emoji and Hinglish sentiment classification (never Neutral)
-3. Sarcasm detection and negation preservation
-4. Flagged YouTube post (72.0% Neg, 18.0% Pos, 10.0% Neu)
-5. Sub-second PDF and CSV export speeds (&lt;1s)
-6. Uncapped comment fetching (`max_comments=None`) across all extractors
-7. E-Commerce Hinglish reviews (`"Paisa vasool"`, `"Bilkul nakli"`, `"Battery backup bekar hai"`)
-8. Tier-2 E-Commerce root causes (Defect, Delivery, Counterfeit, Value for Money)
-9. Amazon & Flipkart full pipeline with 1★–5★ star rating distribution
-
----
-
-## 🛠️ Step-by-Step Git & GitHub Setup
-
-To initialize a new Git repository or connect to GitHub, execute the following commands in order:
-
-```bash
-# 1. Initialize git repository
-git init
-
-# 2. Configure default branch to main
-git branch -M main
-
-# 3. Stage all clean project files (.gitignore automatically excludes caches and node_modules)
-git add .
-
-# 4. Commit upgraded platform code
-git commit -m "feat: upgrade sentiment platform to v2.0 (e-commerce, uncapped ingestion, react dashboard)"
-
-# 5. Link your remote GitHub repository (replace with your repo URL)
-git remote add origin https://github.com/YOUR_USERNAME/social-media-sentiment-analysis-module.git
-
-# 6. Push to GitHub
-git push -u origin main
+npx tsc --noEmit
+npm run build
 ```
 
 ---
 
-## 📡 REST API Reference
+## REST API Reference
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| `GET /` | `GET` | Serves the standalone responsive web dashboard |
-| `POST /api/analyze` | `POST` | Ingests comments/reviews, runs 4-step preprocessing, 2-tier NLP classification, and caches report |
-| `GET /api/report/{post_id}` | `GET` | Retrieves pre-computed report from cache in `< 5ms` (auto-computes if uncached) |
-| `GET /api/export/{post_id}/csv` | `GET` | Streams executive multi-table CSV report in `< 1.0s` (`X-Export-Time-Seconds`) |
-| `GET /api/export/{post_id}/pdf` | `GET` | Streams ReportLab PDF report in `< 1.0s` (`X-Export-Time-Seconds`) |
-| `GET /api/posts` | `GET` | Lists all cached post IDs, platforms, and metadata |
-| `GET /health` | `GET` | Health check endpoint returning platform status and version |
+| `/` | `GET` | Serves the production React dashboard from `sentiment_module/app/static/index.html` |
+| `/assets/*` & `/static/*` | `GET` | Serves bundled JS/CSS static assets |
+| `/api/analyze` | `POST` | Runs URL/ID detection, extraction waterfall, 4-step preprocessing, 2-tier NLP, cache & SQLite save |
+| `/api/ingest-browser` | `POST` | Ingests raw comments/reviews scraped live by the Chrome Extension and computes full analytics |
+| `/api/analyze-quick` | `POST` | Runs rapid sentiment + sarcasm scoring on pasted text/comment arrays |
+| `/api/instagram/rapidapi` | `POST` | Dedicated RapidAPI + fallback ingestion route for Instagram posts/reels |
+| `/api/amazon/rapidapi` | `POST` | Dedicated RapidAPI + direct HTML hybrid ingestion route for Amazon ASINs |
+| `/api/report/{post_id}` | `GET` | Retrieves a cached `CachedReport` JSON (`< 5ms`) or executes pipeline if uncached |
+| `/api/export/{post_id}/csv` | `GET` | Streams multi-table normalized CSV report (`< 1s` SLA) |
+| `/api/export/{post_id}/pdf` | `GET` | Streams ReportLab executive PDF summary (`< 1s` SLA) |
+| `/api/posts` | `GET` | Lists cached analyzed `post_id` entries |
+| `/api/history` | `GET` | Returns historical analysis summaries persisted in SQLite `sentiment_hub.db` |
+| `/api/history/{post_id}` | `DELETE` | Deletes a historical analysis entry from SQLite |
+| `/api/compare` | `POST` | Side-by-side comparison (`report_a`, `report_b`, polarity deltas, and winner) |
+| `/api/settings/keys` | `GET` / `POST` | Inspects masked key status or updates runtime API keys in memory and `.env` |
+| `/health` | `GET` | Service health check returning status and UTC timestamp |
 
 ---
 
-## 📄 License
-Apache License 2.0. Built per the 2 November 2026 MOM specifications.
+## Pushing Changes to GitHub
+
+`.gitignore` automatically excludes `.env`, `node_modules/`, `dist/`, runtime `cache/`, `exports/`, and `*.db` files. To commit and push updates cleanly:
+
+```powershell
+git add .
+git commit -m "docs: update README for Sentinelytics v3.0, browser extension, and 27 passing tests"
+git push origin main
+```
+
+---
+
+## License
+Apache License 2.0.
